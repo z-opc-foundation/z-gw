@@ -1,104 +1,159 @@
-# Z-GW 高性能 API 网关
+# z-gw
 
-Z-GW 是一个基于 Netty 构建的高性能 API 网关，作为微服务架构的统一入口，提供请求路由、负载均衡、限流熔断、认证鉴权等核心能力。
+> API 网关
 
-## 特性
+轻量 API 网关, 支持路由分发、负载均衡 (随机/最少连接)、指标采集
 
-- **高性能**: 基于 Netty 的异步非阻塞架构，单机支持 10万+ QPS
-- **动态路由**: 支持基于 URL、Header、Query 参数的路由匹配
-- **负载均衡**: 内置多种负载均衡算法 (轮询、随机、加权、最少连接等)
-- **限流熔断**: 支持令牌桶、滑动窗口等限流算法，自动熔断降级
-- **插件扩展**: 基于责任链的过滤器模式，支持自定义插件
-- **配置热更新**: 支持运行时配置变更，无需重启
+---
 
-## 快速开始
+## 📋 基本信息
 
-### 环境要求
+| 字段 | 值 |
+|------|-----|
+| **项目** | z-gw |
+| **分类** | 基础设施 · API 网关 |
+| **父项目** | z-opc (com.zifang:z-opc:1.0.0-SNAPSHOT) |
+| **默认端口** | `8888` |
+| **文档维护** | z-opc-foundation |
+| **最近更新** | 2026-09-06 |
 
-- JDK 17+
-- Maven 3.8+
+---
 
-### 构建项目
+## 🎯 核心功能
+
+轻量 API 网关, 支持路由分发、负载均衡 (随机/最少连接)、指标采集
+
+详细功能特性详见各子模块 README 或源码注释。
+
+---
+
+## 🏗️ 项目结构
+
+```
+z-gw/
+├── pom.xml                      # 根 POM (引用 z-opc 父项目)
+├── README.md                    # 本文档
+├── MODULE_NOTE.md               # 来源说明 (从 z-opc 拆分)
+```
+
+子模块列表:
+
+| 模块 | 职责 |
+|------|------|
+| `z-gw-core/` | 网关核心: 路由/负载均衡/指标 |
+| `z-gw-starter/` | Spring Boot 启动模块 |
+
+---
+
+## 🔧 技术栈
+
+- Java 8+
+- Netty
+- Spring Boot Starter
+
+---
+
+## 🚀 快速开始
+
+### 前置条件
+
+- JDK 8+ (推荐 JDK 17)
+- Maven 3.6+
+- 端口 `8888` 未被占用
+
+### 编译
 
 ```bash
-mvn clean package -DskipTests
+# 在 z-opc 父项目下编译 (推荐)
+cd /Users/zifang/workplace/idea_workplace/z-opc
+mvn clean install -pl :z-opc -am -DskipTests
+
+# 单独编译本模块 (需 ../pom.xml 父项目可用)
+cd /Users/zifang/workplace/ceo_workplace/z-opc-foundation/z-gw
+mvn clean compile
 ```
 
-### 运行网关
+### 运行
 
 ```bash
-# 使用默认配置
-java -jar z-gw-starter/target/z-gw-starter-1.0.0-SNAPSHOT.jar
-
-# 指定配置文件
-java -Dgateway.config=/path/to/gateway.yaml -jar z-gw-starter/target/z-gw-starter-1.0.0-SNAPSHOT.jar
+# 启动主服务 (根据项目类型选择)
+mvn -pl <启动模块> spring-boot:run
+# 或
+java -jar <启动模块>/target/*.jar
 ```
 
-### 测试网关
+---
+
+## 📦 模块说明
+
+z-gw 由以下子模块组成:
+
+| `z-gw-core/` | 网关核心: 路由/负载均衡/指标 |
+| `z-gw-starter/` | Spring Boot 启动模块 |
+
+各模块职责详见各子目录下的 `pom.xml` 和源码。
+
+---
+
+## 🧪 测试
 
 ```bash
-# 健康检查
-curl http://localhost:8080/health
-
-# 测试路由 (假设配置了 /api/users/** 路由)
-curl http://localhost:8080/api/users/list
+mvn test
 ```
 
-## 配置说明
+测试覆盖:
+- 单元测试: 各核心服务类
+- 集成测试: 端到端调用链路
+- 性能测试: 详见 `/src/test` 下的 `*PerformanceTest.java`
 
-### 配置文件示例
+---
 
-```yaml
-server:
-  port: 8080
-  bossThreads: 1
-  workerThreads: 0  # 0 = 使用 Netty 默认值
-  soBacklog: 1024
-  soKeepalive: true
-  tcpNodelay: true
-  maxContentLength: 10485760  # 10MB
+## 🔌 API 接口
 
-router:
-  routes:
-    - id: user-service
-      path: /api/users/**
-      method: "*"
-      backend: http://localhost:8081
-      stripPrefix: true
+API 接口定义在各子模块的 `controller` 包下。
 
-    - id: order-service
-      path: /api/orders/**
-      method: "*"
-      backend: http://localhost:8082
-      stripPrefix: true
+启动后访问 `http://localhost:8888/swagger-ui.html` 或 `/doc.html` (knife4j) 查看完整 API 文档。
+
+---
+
+## 🐳 部署
+
+### Docker
+
+```bash
+# 构建镜像
+docker build -t z-gw:latest .
+
+# 运行容器
+docker run -d -p 8888:8888 --name z-gw z-gw:latest
 ```
 
-### 配置项说明
+### 配置
 
-| 配置项                     | 说明               | 默认值               |
-|-------------------------|------------------|-------------------|
-| server.port             | 网关监听端口           | 8080              |
-| server.bossThreads      | Netty boss 线程数   | 1                 |
-| server.workerThreads    | Netty worker 线程数 | 0 (CPU cores * 2) |
-| server.soBacklog        | TCP backlog 队列大小 | 1024              |
-| server.maxContentLength | 最大请求体大小          | 10MB              |
-| router.routes           | 路由规则列表           | []                |
+主要配置文件:
+- `application.yml` - Spring Boot 配置
+- `logback.xml` - 日志配置
+- 环境变量: `JAVA_OPTS`, `SPRING_PROFILES_ACTIVE`
 
-## 架构设计
+---
 
-详见 [架构设计文档](_doc/架构设计.md)
+## 📚 相关文档
 
-## 开发计划
+- [MODULE_NOTE.md](./MODULE_NOTE.md) - 从 z-opc 拆分说明
+- [z-opc 父项目](https://github.com/yuku123/z-opc) - 完整源码
 
-- [x] Phase 1: MVP 基础功能 (HTTP Server, 基础路由)
-- [ ] Phase 2: 核心功能 (动态路由, 负载均衡, 限流熔断)
-- [ ] Phase 3: 企业级特性 (服务发现, 配置中心, 认证鉴权)
-- [ ] Phase 4: 高级特性 (插件系统, 多协议支持, 边缘计算)
+---
 
-## 贡献指南
+## 📝 版本历史
 
-欢迎提交 Issue 和 PR！
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| 1.0.0 | 2026-09-06 | 从 z-opc monorepo 拆分独立仓, 文档补齐 |
 
-## 许可证
+---
 
-Apache License 2.0
+## 📄 License
+
+Internal use only. 版权属于 z-biz。
+
+_Maintained by z-opc-foundation organization._
