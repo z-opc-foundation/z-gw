@@ -37,26 +37,37 @@ public class SimpleRouter implements Router {
 
         if (logger.isDebugEnabled()) {
             logger.debug("Routing request: {} {}", method, uri);
-        }
-
-        for (RouteEntry entry : routes) {
-            if (entry.matches(uri, method.name())) {
-                String targetUri = buildTargetUri(uri, entry);
-                if (logger.isDebugEnabled()) {
+            for (RouteEntry entry : routes) {
+                if (entry.matches(uri, method.name())) {
+                    String targetUri = buildTargetUri(uri, entry);
                     logger.debug("Route matched: {} -> {}", uri, targetUri);
+                    return new RouteResult(
+                            entry.getId(),
+                            entry.getPath(),
+                            entry.getBackend(),
+                            targetUri,
+                            entry.isStripPrefix()
+                    );
                 }
-                return new RouteResult(
-                        entry.getId(),
-                        entry.getPath(),
-                        entry.getBackend(),
-                        targetUri,
-                        entry.isStripPrefix()
-                );
             }
+            logger.warn("No route found for: {} {}", method, uri);
+            return null;
+        } else {
+            for (RouteEntry entry : routes) {
+                if (entry.matches(uri, method.name())) {
+                    String targetUri = buildTargetUri(uri, entry);
+                    return new RouteResult(
+                            entry.getId(),
+                            entry.getPath(),
+                            entry.getBackend(),
+                            targetUri,
+                            entry.isStripPrefix()
+                    );
+                }
+            }
+            logger.warn("No route found for: {} {}", method, uri);
+            return null;
         }
-
-        logger.warn("No route found for: {} {}", method, uri);
-        return null;
     }
 
     @Override
@@ -111,17 +122,17 @@ public class SimpleRouter implements Router {
         int queryIndex = path.indexOf('?');
         if (queryIndex != -1) {
             path = path.substring(0, queryIndex);
-        }
-
-        // Strip prefix if configured
-        if (entry.isStripPrefix()) {
-            String prefix = entry.getPath();
-            // Convert path pattern to actual prefix
-            prefix = prefix.replace("/**", "").replace("/*", "");
-            if (path.startsWith(prefix)) {
-                path = path.substring(prefix.length());
-                if (!path.startsWith("/")) {
-                    path = "/" + path;
+        } else {
+            // Strip prefix if configured
+            if (entry.isStripPrefix()) {
+                String prefix = entry.getPath();
+                // Convert path pattern to actual prefix
+                prefix = prefix.replace("/**", "").replace("/*", "");
+                if (path.startsWith(prefix)) {
+                    path = path.substring(prefix.length());
+                    if (!path.startsWith("/")) {
+                        path = "/" + path;
+                    }
                 }
             }
         }
