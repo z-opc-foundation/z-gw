@@ -1,0 +1,50 @@
+# ============ Build artifacts ============
+**/target/
+**/.classpath
+**/.project
+**/.settings/
+**/.idea/
+**/*.iml
+**/dependency-reduced-pom.xml
+
+# ============ IDE / OS ============
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+*.swo
+*.bak
+
+# ============ Logs ============
+*.log
+logs/
+**/logs/
+
+# ============ Frontend ============
+**/node_modules/
+**/dist/
+**/.env.local
+**/.env.*.local
+
+# ============ Maven wrapper ============
+mvnw
+mvnw.cmd
+.mvn/
+
+# ============ Generated / temp ============
+**/_tools/__pycache__/
+**/__pycache__/
+**/*.tmp
+**/*.bak
+**/*.orig
+
+# ============ Tests outputs ============
+**/surefire-reports/
+**/jacoco.exec
+
+# ============ Build output ============
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
