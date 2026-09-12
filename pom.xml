@@ -57,7 +57,8 @@
         <module>z-gw-core</module>
         <module>z-gw-spring-boot-starter</module>
         <module>z-gw-admin</module>
-        <module>z-gw-examples</module>
+        <!-- 临时排除 z-gw-examples（示例启动器，不是发布目标，留作仓库内 demo） -->
+        <!-- <module>z-gw-examples</module> -->
     </modules>
 
     <properties>
@@ -77,13 +78,14 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- z-opc 自研 BOM -->
+            <!-- z-opc-foundation 自研 BOM（从 Maven Central io.github.yuku123 拉取的 release 版，
+                 不是 com.zifang monorepo 内部 SNAPSHOT — Central Portal 不允许发布 SNAPSHOT 引用） -->
             <dependency>
-                <groupId>com.zifang</groupId>
+                <groupId>io.github.yuku123</groupId>
                 <artifactId>z-boot-dependencies</artifactId>
+                <version>1.0.1</version>
                 <scope>import</scope>
                 <type>pom</type>
-                <version>1.0.0-SNAPSHOT</version>
             </dependency>
 
             <!-- z-gw 内部模块 -->
