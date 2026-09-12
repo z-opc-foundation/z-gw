@@ -5,11 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.zifang</groupId>
+        <groupId>io.github.yuku123</groupId>
         <artifactId>z-gw</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.1</version>
         
     </parent>
+    <groupId>io.github.yuku123</groupId>
+    <version>1.0.1</version>
 
     <artifactId>z-gw-api</artifactId>
     <packaging>jar</packaging>
@@ -20,11 +22,42 @@
         任何 z-gw 实现版本都必须暴露这层接口,实现者可替换底层运行时。
     </description>
 
+    <url>https://github.com/yuku123/z-gw</url>
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>yuku123</id>
+            <name>yuku123</name>
+            <email>1340947819@qq.com</email>
+            <organization>z-team</organization>
+            <organizationUrl>https://github.com/yuku123</organizationUrl>
+            <timezone>+08:00</timezone>
+            <roles>
+                <role>owner</role>
+            </roles>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:https://github.com/yuku123/z-gw.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/yuku123/z-gw.git</developerConnection>
+        <url>https://github.com/yuku123/z-gw</url>
+        <tag>HEAD</tag>
+    </scm>
+
+
+
     <dependencies>
         <!-- z-util-core: 基础工具类 -->
         <dependency>
             <groupId>io.github.yuku123</groupId>
             <artifactId>z-util-core</artifactId>
+            <version>1.0.9</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.logging.log4j</groupId>
@@ -35,18 +68,21 @@
         <dependency>
             <groupId>io.github.yuku123</groupId>
             <artifactId>z-util-parser-json</artifactId>
+            <version>1.0.9</version>
         </dependency>
 
         <!-- SLF4J API (运行时绑定由 starter 引入) -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+            <version>2.0.9</version>
         </dependency>
 
         <!-- Test -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

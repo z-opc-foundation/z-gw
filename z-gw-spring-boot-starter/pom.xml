@@ -5,11 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.zifang</groupId>
+        <groupId>io.github.yuku123</groupId>
         <artifactId>z-gw</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.1</version>
         
     </parent>
+    <groupId>io.github.yuku123</groupId>
+    <version>1.0.1</version>
 
     <artifactId>z-gw-spring-boot-starter</artifactId>
     <packaging>jar</packaging>
@@ -21,20 +23,53 @@
         自动创建 GatewayServer、绑定 Properties、注入路由/服务发现/限流等 Bean。
     </description>
 
+    <url>https://github.com/yuku123/z-gw</url>
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>yuku123</id>
+            <name>yuku123</name>
+            <email>1340947819@qq.com</email>
+            <organization>z-team</organization>
+            <organizationUrl>https://github.com/yuku123</organizationUrl>
+            <timezone>+08:00</timezone>
+            <roles>
+                <role>owner</role>
+            </roles>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:https://github.com/yuku123/z-gw.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/yuku123/z-gw.git</developerConnection>
+        <url>https://github.com/yuku123/z-gw</url>
+        <tag>HEAD</tag>
+    </scm>
+
+
+
     <dependencies>
         <dependency>
-            <groupId>com.zifang</groupId>
+            <groupId>io.github.yuku123</groupId>
             <artifactId>z-gw-core</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
+            <version>2.7.12</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
+            <version>2.7.12</version>
             <optional>true</optional>
         </dependency>
 
@@ -42,17 +77,20 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
+            <version>5.3.39</version>
         </dependency>
 
         <!-- Spring Boot Actuator (健康检查端点) - 可选 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-actuator</artifactId>
+            <version>2.7.12</version>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-actuator-autoconfigure</artifactId>
+            <version>2.7.12</version>
             <optional>true</optional>
         </dependency>
 
@@ -60,18 +98,21 @@
         <dependency>
             <groupId>com.zifang</groupId>
             <artifactId>z-boot-web-starter</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
         <!-- 监控指标 -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+            <version>1.12.13</version>
         </dependency>
 
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <version>2.7.12</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
