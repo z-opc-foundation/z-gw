@@ -1,0 +1,167 @@
+# ============================================================
+# z-gw-examples 启动器配置
+# ============================================================
+
+spring:
+  application:
+    name: z-gw-examples
+  main:
+    # 允许通过 -Dzgw.server.port=... 等参数覆盖
+    web-application-type: servlet
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8888
+  servlet:
+    context-path: /
+
+# ============================================================
+# z-gw 网关配置
+# ============================================================
+zgw:
+  enabled: true
+
+  server:
+    # Netty 网关监听端口(对外提供代理服务)
+    port: 9090
+    host: 0.0.0.0
+    bossThreads: 1
+    workerThreads: 0          # 0 = CPU * 2
+    soBacklog: 1024
+    tcpNodelay: true
+    soKeepalive: true
+    maxContentLength: 10485760   # 10MB
+    connectTimeoutMs: 3000
+    readTimeoutMs: 30000
+    writeTimeoutMs: 30000
+    maxPoolSize: 500
+
+  security:
+    enabled: true
+    jwtSecret: z-gw-examples-secret-please-change
+    publicPaths:
+      - /health
+      - /healthz
+      - /actuator/**
+      - /gw/admin/**
+      - /doc.html
+      - /webjars/**
+      - /v3/api-docs/**
+
+  # ============================================================
+  # 路由定义
+  # ============================================================
+  routes:
+    # 示例 1: 静态 HTTP 转发
+    - id: demo-echo
+      uri: http://httpbin.org
+      order: 0
+      predicates:
+        - name: Path
+          args:
+            _genkey_0: /demo/**
+      filters:
+        - name: StripPrefix
+          args:
+            _genkey_0: "1"
+        - name: AddResponseHeader
+          args:
+            _genkey_0: X-Gateway, z-gw-demo
+
+    # 示例 2: 灰度路由(权重 90/10)
+    - id: user-service-v1
+      uri: lb://user-service
+      order: 1
+      predicates:
+        - name: Path
+          args:
+            _genkey_0: /api/users/**
+        - name: Weight
+          args:
+            user_group: "90"
+    - id: user-service-v2-canary
+      uri: lb://user-service-v2
+      order: 2
+      predicates:
+        - name: Path
+          args:
+            _genkey_0: /api/users/**
+        - name: Weight
+          args:
+            user_group: "10"
+
+    # 示例 3: 限流路由
+    - id: api-limited
+      uri: http://httpbin.org
+      order: 3
+      predicates:
+        - name: Path
+          args:
+            _genkey_0: /api/limited/**
+      filters:
+        - name: RequestRateLimiter
+          args:
+            replenishRate: "10"
+            burstCapacity: "20"
+            keyResolver: ip
+            algorithm: tokenBucket
+        - name: StripPrefix
+          args:
+            _genkey_0: "1"
+
+    # 示例 4: 重试 + 熔断
+    - id: api-resilient
+      uri: http://httpbin.org
+      order: 4
+      predicates:
+        - name: Path
+          args:
+            _genkey_0: /api/resilient/**
+      filters:
+        - name: Hystrix
+          args:
+            name: api-resilient-cb
+            errorThresholdPercentage: "50"
+            requestVolumeThreshold: "20"
+            sleepWindowMs: "5000"
+        - name: Retry
+          args:
+            retries: "3"
+            backoffMs: "100"
+        - name: StripPrefix
+          args:
+            _genkey_0: "1"
+
+# ============================================================
+# Spring Boot Actuator
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# ============================================================
+# 日志
+# ============================================================
+logging:
+  level:
+    root: INFO
+    com.zifang.z.gw: INFO
+    io.netty: WARN
+
+# ============================================================
+# Knife4j API 文档
+# ============================================================
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn

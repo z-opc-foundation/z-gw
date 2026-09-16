@@ -1,0 +1,35 @@
+{
+  "name": "z-gw-admin-frontend",
+  "version": "1.0.0",
+  "description": "z-gw 网关管理面板 - 动态路由 CRUD + 实时指标可视化",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1",
+    "antd": "^6.0.0",
+    "@ant-design/icons": "^5.5.2",
+    "axios": "^1.7.9",
+    "dayjs": "^1.11.13",
+    "@monaco-editor/react": "^4.6.0",
+    "recharts": "^2.15.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/node": "^22.10.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.7",
+    "unplugin-auto-import": "^0.19.0",
+    "unplugin-vue-components": "^0.27.5"
+  }
+}
