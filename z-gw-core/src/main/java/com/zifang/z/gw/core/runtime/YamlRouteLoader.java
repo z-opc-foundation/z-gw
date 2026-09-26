@@ -35,14 +35,26 @@ public class YamlRouteLoader {
 
     /** 加载文件并解析为 RouteDefinition 列表(简化版,需要外部已经 JSON/YAML 解析) */
     public static List<RouteDefinition> loadFromFile(Path path) throws IOException {
+        // InputStream.readAllBytes() 是 Java 9+ API，与本仓声明的 maven.compiler.target=8 冲突：
+        // JDK 8 编不过，用更高版本 JDK 编出去则 Java 8 运行时抛 NoSuchMethodError。
         try (InputStream is = Files.newInputStream(path)) {
-            byte[] bytes = is.readAllBytes();
+            byte[] bytes = readFully(is);
             // 此处仅占位 — 实际实现中应当用 SnakeYAML 或 Jackson YAML
             // 我们支持纯 JSON 格式,生产推荐 starter 的 @ConfigurationProperties 方式
             String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             log.warn("loadFromFile: using simple JSON parser, recommended to use Spring Boot starter");
             return SimpleJsonRouteParser.parse(text);
         }
+    }
+
+    private static byte[] readFully(InputStream is) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int n;
+        while ((n = is.read(chunk)) != -1) {
+            out.write(chunk, 0, n);
+        }
+        return out.toByteArray();
     }
 
     /** 内置演示路由 */
