@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -42,17 +44,17 @@ public class MetaController {
     @Operation(summary = "列出全部内置谓词工厂")
     public List<Map<String, String>> predicates() {
         List<Map<String, String>> list = new ArrayList<>();
-        predicateRegistry.all().forEach(p -> list.add(Map.of("name", p.name())));
+        predicateRegistry.all().forEach(p -> list.add(Collections.singletonMap("name", p.name())));
         return list;
     }
 
     @GetMapping("/status")
     @Operation(summary = "网关运行时状态")
     public Map<String, Object> status() {
-        return Map.of(
-                "started", server != null && server.isStarted(),
-                "routes", routeRepository.size()
-        );
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("started", server != null && server.isStarted());
+        out.put("routes", routeRepository.size());
+        return out;
     }
 
     @GetMapping("/routes")

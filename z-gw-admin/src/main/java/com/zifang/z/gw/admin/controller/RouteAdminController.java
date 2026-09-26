@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -85,7 +87,8 @@ public class RouteAdminController {
     @Operation(summary = "整体 reload 路由")
     public ResponseEntity<Map<String, Object>> reload(@RequestBody List<RouteDefinition> routes) {
         repository.replaceAll(routes);
-        return ResponseEntity.ok(Map.of("count", routes == null ? 0 : routes.size()));
+        return ResponseEntity.ok(
+                Collections.singletonMap("count", (Object) (routes == null ? 0 : routes.size())));
     }
 
     @GetMapping("/stats")
@@ -96,10 +99,10 @@ public class RouteAdminController {
         for (RouteDefinition r : routes) {
             if (r.isEnabled()) enabled++;
         }
-        return Map.of(
-                "total", routes.size(),
-                "enabled", enabled,
-                "disabled", routes.size() - enabled
-        );
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("total", routes.size());
+        out.put("enabled", enabled);
+        out.put("disabled", routes.size() - enabled);
+        return out;
     }
 }
