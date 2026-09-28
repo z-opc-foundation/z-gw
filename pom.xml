@@ -67,7 +67,9 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <!-- Netty 4.1.x — 已 EOL 旧版本兼容 z-opc 的 JDK 8 锁定 -->
-        <netty.version>4.1.100.Final</netty.version>
+        <!-- 2026-09-28「同坐标单版本」：4.1.100.Final → 4.1.138.Final，与 z-boot-dependencies 1.0.18 的
+             netty-bom 同一口径（4.1.138 含 CVE 修复，4.1.x 内二进制兼容）。 -->
+        <netty.version>4.1.138.Final</netty.version>
         <reactor-netty.version>1.1.13</reactor-netty.version>
         <projectreactor.version>3.6.10</projectreactor.version>
 
