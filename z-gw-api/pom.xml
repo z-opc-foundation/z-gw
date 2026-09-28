@@ -53,11 +53,10 @@
 
 
     <dependencies>
-        <!-- z-util-core: 基础工具类 -->
+        <!-- z-util-core: 基础工具类 —— 版本由 parent 的 fleet 下发（1.0.13，与迁移前同值） -->
         <dependency>
             <groupId>io.github.yuku123</groupId>
             <artifactId>z-util-core</artifactId>
-            <version>${z-util.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.logging.log4j</groupId>
@@ -68,7 +67,6 @@
         <dependency>
             <groupId>io.github.yuku123</groupId>
             <artifactId>z-util-parser-json</artifactId>
-            <version>${z-util.version}</version>
         </dependency>
 
         <!-- SLF4J API (运行时绑定由 starter 引入) -->

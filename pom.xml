@@ -4,11 +4,18 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- 消费入口统一走 z-boot-parent（1.0.19 起全组织口径）：继承第三方地板 z-boot-dependencies
+         （156 条）+ import 兄弟仓版本权威 z-boot-fleet（163 条）+ Java 8 的 pluginManagement。
+         以前的 parent 是 com.zifang:z-opc:1.0.0-SNAPSHOT —— 那个 pom 只存在于作者本机的 ~/.m2，
+         而这里的 relativePath 指的 ../pom.xml 在本仓根本不存在（z-opc-foundation 下没有聚合 pom），
+         换台机器连 pom 都读不动；对外发布的件靠 flatten oss 把 parent 剥掉了，所以 Central 消费者
+         没受影响，但"源码能被别人构建"这件事一直是假的。
+         relativePath 必须留空：parent 不在磁盘上，在 repo1。 -->
     <parent>
-        <groupId>com.zifang</groupId>
-        <artifactId>z-opc</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
+        <groupId>io.github.yuku123</groupId>
+        <artifactId>z-boot-parent</artifactId>
+        <version>1.0.19</version>
+        <relativePath/>
     </parent>
 
     <artifactId>z-gw</artifactId>
@@ -62,37 +69,28 @@
     </modules>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-
-        <!-- Netty 4.1.x — 已 EOL 旧版本兼容 z-opc 的 JDK 8 锁定 -->
-        <!-- 2026-09-28「同坐标单版本」：4.1.100.Final → 4.1.138.Final，与 z-boot-dependencies 1.0.18 的
-             netty-bom 同一口径（4.1.138 含 CVE 修复，4.1.x 内二进制兼容）。 -->
-        <netty.version>4.1.138.Final</netty.version>
+        <!-- 版本口径由 parent 下发：netty 4.1.138.Final / log4j2 2.25.4 / z-util 1.0.13 三格
+             与父链面值逐字相同（parent_preflight 对过），property 与对应的 DM 条目一起删掉。
+             maven.compiler.source/target=8、sourceEncoding=UTF-8 同样由 parent 供。
+             下面三个是**父链没有**的键，删了就当场换味，必须留：
+               reactor 一族地板只到 spring-boot 2.7.18 的 3.4.34 / reactor-netty 不供；
+               slf4j-api 地板跟 spring-boot 走 1.7.36，而本仓的绑定是 log4j-slf4j2-impl（要求 slf4j 2.x）。 -->
         <reactor-netty.version>1.1.13</reactor-netty.version>
         <projectreactor.version>3.6.10</projectreactor.version>
-
-        <!-- Logging — 与 z-opc 统一使用 log4j2，排除 logback -->
         <slf4j.version>2.0.9</slf4j.version>
-        <log4j2.version>2.25.4</log4j2.version>
-
-        <z-util.version>1.0.13</z-util.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- z-opc-foundation 自研 BOM（从 Maven Central io.github.yuku123 拉取的 release 版，
-                 不是 com.zifang monorepo 内部 SNAPSHOT — Central Portal 不允许发布 SNAPSHOT 引用） -->
+            <!-- z-gw 自家 5 个 reactor 坐标钉 ${project.version}。这一格不是装饰：继承来的 DM 会
+                 改写**传递依赖**的版本，而 fleet 里 z-gw 那一格钉的是 repo1 上的旧发布件 1.0.4
+                 （z-cache 试点实测：不补这格，shade/打包会把旧字节码当 sibling 打进来）。
+                 本仓当前版本与 fleet 面值刚好同值，所以补上之后 tree 不动；但它是"下次抬版本不踩坑"的前提。 -->
             <dependency>
                 <groupId>io.github.yuku123</groupId>
-                <artifactId>z-boot-dependencies</artifactId>
-                <version>1.0.17</version>
-                <scope>import</scope>
-                <type>pom</type>
+                <artifactId>z-gw</artifactId>
+                <version>${project.version}</version>
             </dependency>
-
-            <!-- z-gw 内部模块 -->
             <dependency>
                 <groupId>io.github.yuku123</groupId>
                 <artifactId>z-gw-api</artifactId>
@@ -114,14 +112,17 @@
                 <version>${project.version}</version>
             </dependency>
 
-            <!-- Netty -->
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-all</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
+            <!-- 原来这里 import 了 io.github.yuku123:z-boot-dependencies:1.0.17 —— 删了：
+                 parent 已经带着同一坐标的 1.0.19，重复 import 只会造成 dm 打架。
+                 净效果是地板抬了一格（1.0.17 → 1.0.19），漂出来的版本逐条记在提交说明里。 -->
 
-            <!-- Reactor Netty (可选 — 高级 HTTP 客户端/响应式出站) -->
+            <!-- Netty / log4j2 的 managed 条目整批删掉：netty-bom 4.1.138.Final 与
+                 log4j-api/core 2.25.4 都由地板直接下发，与本仓迁移前的面值同值。
+                 ⚠ 例外是 log4j-slf4j2-impl：地板只钉了 log4j-slf4j-impl（slf4j 1.x 那支），
+                 所以这一支由 z-gw-core 自己的字面 2.25.4 承载，不走 DM。 -->
+
+            <!-- Reactor（可选 — 高级 HTTP 客户端/响应式出站）：地板跟 spring-boot 2.7.18 给
+                 reactor-core 3.4.34、reactor-netty 不供 ⇒ 本仓自己钉，删掉即换味。 -->
             <dependency>
                 <groupId>io.projectreactor.netty</groupId>
                 <artifactId>reactor-netty</artifactId>
@@ -133,29 +134,16 @@
                 <version>${projectreactor.version}</version>
             </dependency>
 
-            <!-- Logging — z-opc 统一使用 log4j2 -->
-            <dependency>
-                <groupId>org.apache.logging.log4j</groupId>
-                <artifactId>log4j-api</artifactId>
-                <version>${log4j2.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.logging.log4j</groupId>
-                <artifactId>log4j-core</artifactId>
-                <version>${log4j2.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.logging.log4j</groupId>
-                <artifactId>log4j-slf4j2-impl</artifactId>
-                <version>${log4j2.version}</version>
-            </dependency>
+            <!-- Logging：slf4j-api 2.0.9 是本仓的刻意选择（地板跟 spring-boot 走 1.7.36，
+                 而 log4j-slf4j2-impl 2.25.4 需要 slf4j 2.x）⇒ 这条直接 DM 必须留着压住。 -->
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
                 <version>${slf4j.version}</version>
             </dependency>
 
-            <!-- Micrometer — Prometheus 指标 -->
+            <!-- Micrometer — Prometheus 指标：地板（spring-boot 2.7.18）给 1.9.17，本仓要 1.12.13
+                 ⇒ 直接条目压住（child 的直接 DM 优先于继承来的）。 -->
             <dependency>
                 <groupId>io.micrometer</groupId>
                 <artifactId>micrometer-core</artifactId>
@@ -165,6 +153,29 @@
                 <groupId>io.micrometer</groupId>
                 <artifactId>micrometer-registry-prometheus</artifactId>
                 <version>1.12.13</version>
+            </dependency>
+
+            <!-- 旧 parent 直接钉过、而新父链给的值**更低**的两族三格：只能按坐标写本仓的直接 DM 条目
+                 压回去（child 直接条目 > 继承来的父链面值 > 本仓 import 进来的 BOM，实测见提交说明）。
+                   io.prometheus:simpleclient —— 地板钉 0.8.1，而 micrometer-registry-prometheus 1.12.13
+                     的 PrometheusMeterRegistry 要 0.16.x；不压就 0.16.0 → 0.8.1、simpleclient_common
+                     0.16.0 → 0.15.0、三个 simpleclient_tracer_* 直接掉出树（迁移前后 tree 对出来的）。
+                   org.yaml:snakeyaml —— 地板跟 spring-boot 2.7.18 给 1.30，旧 parent 钉 2.0
+                     （CVE-2022-1471 那串），z-cache 试点同一格也是这么压回去的。 -->
+            <dependency>
+                <groupId>io.prometheus</groupId>
+                <artifactId>simpleclient</artifactId>
+                <version>0.16.0</version>
+            </dependency>
+            <dependency>
+                <groupId>io.prometheus</groupId>
+                <artifactId>simpleclient_common</artifactId>
+                <version>0.16.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.yaml</groupId>
+                <artifactId>snakeyaml</artifactId>
+                <version>2.0</version>
             </dependency>
 
             <!-- Test -->
@@ -186,6 +197,13 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!-- 这两条**故意**留在本仓：parent 下发的是 compiler 3.11.0 / surefire 2.22.2（全组织的
+                     保守尺），本仓从旧 parent 那侧一直用的是 3.13.0 / 3.2.5 —— 迁移前后两侧构建日志都是
+                     `compiler:3.13.0:compile` + `surefire:3.2.5:test`，25 支用例的数量与 0 失败两侧一致。
+                     换尺是另一个决定，不在"只换 parent"这一格里顺手做。
+                     ⚠ 但 parent 的 `<compilerArgs>-parameters</compilerArgs>` 是**合并**进来的，挡不住：
+                     实测 4 个模块 112 支 class 的 md5 全部变化（RouteMatcher.class 的 MethodParameters
+                     属性 0 处 → 4 处），class 文件 major 仍是 52（Java 8 口径没漂）。 -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>

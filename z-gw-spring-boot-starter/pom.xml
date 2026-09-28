@@ -60,37 +60,36 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Spring Boot -->
+        <!-- Spring Boot：这几处原先钉的是字面 2.7.12，而地板（z-boot-dependencies 1.0.19）跟
+             spring-boot-dependencies 走 2.7.18 ⇒ 只把传递依赖抬到 2.7.18、这里留 2.7.12，就会出现
+             "spring-boot-starter-web 2.7.12 坐在 spring-boot 2.7.18 上"的混版（迁移第一遍实测就是这个形状）。
+             Spring Boot 各模块必须同版本，所以整族删掉字面量、由地板下发 2.7.18。
+             与本仓 1.0.4 的发布说明「收口 netty 4.1.138.Final / spring-boot 2.7.18」同一个方向。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
-            <version>2.7.12</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
-            <version>2.7.12</version>
             <optional>true</optional>
         </dependency>
 
-        <!-- Spring Web (用于 actuator 兼容) -->
+        <!-- Spring Web (用于 actuator 兼容)：5.3.39 与地板面值同值，删掉字面量改由 spring-framework-bom 下发 -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
-            <version>5.3.39</version>
         </dependency>
 
         <!-- Spring Boot Actuator (健康检查端点) - 可选 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-actuator</artifactId>
-            <version>2.7.12</version>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-actuator-autoconfigure</artifactId>
-            <version>2.7.12</version>
             <optional>true</optional>
         </dependency>
 
@@ -113,7 +112,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <version>2.7.12</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
