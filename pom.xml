@@ -14,7 +14,7 @@
     <parent>
         <groupId>io.github.yuku123</groupId>
         <artifactId>z-boot-parent</artifactId>
-        <version>1.0.19</version>
+        <version>1.0.21</version>
         <relativePath/>
     </parent>
 
@@ -155,23 +155,14 @@
                 <version>1.12.13</version>
             </dependency>
 
-            <!-- 旧 parent 直接钉过、而新父链给的值**更低**的两族三格：只能按坐标写本仓的直接 DM 条目
-                 压回去（child 直接条目 > 继承来的父链面值 > 本仓 import 进来的 BOM，实测见提交说明）。
-                   io.prometheus:simpleclient —— 地板钉 0.8.1，而 micrometer-registry-prometheus 1.12.13
-                     的 PrometheusMeterRegistry 要 0.16.x；不压就 0.16.0 → 0.8.1、simpleclient_common
-                     0.16.0 → 0.15.0、三个 simpleclient_tracer_* 直接掉出树（迁移前后 tree 对出来的）。
-                   org.yaml:snakeyaml —— 地板跟 spring-boot 2.7.18 给 1.30，旧 parent 钉 2.0
-                     （CVE-2022-1471 那串），z-cache 试点同一格也是这么压回去的。 -->
-            <dependency>
-                <groupId>io.prometheus</groupId>
-                <artifactId>simpleclient</artifactId>
-                <version>0.16.0</version>
-            </dependency>
-            <dependency>
-                <groupId>io.prometheus</groupId>
-                <artifactId>simpleclient_common</artifactId>
-                <version>0.16.0</version>
-            </dependency>
+          <!-- 2026-09-29 撤掉过两格 io.prometheus:simpleclient / simpleclient_common（原钉 0.16.0）：
+               那两格压的是地板 z-boot-dependencies 按坐标**直接**钉的 simpleclient=0.8.1（现读 1.0.19 发布件），
+               而 micrometer-registry-prometheus 的 PrometheusMeterRegistry 要 io.prometheus.client.exemplars.ExemplarSampler
+               （0.15.0 起才有）。地板 1.0.20 已把那一格删掉、让 micrometer 自己的 pom 说话 ⇒ 压法失去对象。
+               净室实测（parent 1.0.21 + 空本地仓 + repo1-only）：树里落 simpleclient 0.15.0 + simpleclient_common 0.15.0
+               + 三格 simpleclient_tracer_*，log4j-slf4j2-impl 0 命中。
+             · org.yaml:snakeyaml 这一格**留着**：它压的是 floor import 的 spring-boot-dependencies:2.7.18 给
+               的 1.30（CVE-2022-1471 口径），与地板这一刀无关。 -->
             <dependency>
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
