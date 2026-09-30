@@ -251,10 +251,10 @@ _Maintained by the z-opc-foundation organization. z-gw 保持独立仓演进。_
 
 本项目文档统一收口在 `_doc/` 下:
 
-- [`_doc/001_arch/`](_doc/001_arch/) — 架构文档（目前为空目录，暂无文件）
-- [`_doc/002_deploy/`](_doc/002_deploy/) — 部署资料（目前为空目录，暂无文件）
+- `_doc/001_arch/` — 架构文档（目前为空目录，暂无文件）
+- `_doc/002_deploy/` — 部署资料（目前为空目录，暂无文件）
 - [`_doc/003_script/`](_doc/003_script/) — 运维脚本:
   - [`deploy_maven_center.sh`](_doc/003_script/deploy_maven_center.sh) — Maven Central 发布脚本
-- [`_doc/004_skill/`](_doc/004_skill/) — AI skill 定义（目前为空目录，暂无 skill）
+- `_doc/004_skill/` — AI skill 定义（目前为空目录，暂无 skill）
 
 各文档详细说明见各子目录。
