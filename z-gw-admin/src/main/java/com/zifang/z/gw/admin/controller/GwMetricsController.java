@@ -20,12 +20,12 @@ import java.util.Map;
 @RestController
 @RequestMapping("/gw/admin/metrics")
 @Tag(name = "网关指标")
-public class MetricsController {
+public class GwMetricsController {
 
     private final MeterRegistry registry;
 
     @Autowired
-    public MetricsController(MeterRegistry registry) {
+    public GwMetricsController(MeterRegistry registry) {
         this.registry = registry;
     }
 
