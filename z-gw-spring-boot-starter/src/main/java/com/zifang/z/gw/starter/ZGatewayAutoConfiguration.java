@@ -111,7 +111,17 @@ public class ZGatewayAutoConfiguration {
     @Bean
     public ApplicationListener<ContextRefreshedEvent> routeAutoRefresher(InMemoryRouteRepository routeRepository,
                                                                           RouteMatcher routeMatcher) {
+        // 幂等：ContextRefreshedEvent 不保证只发布一次（actuator /refresh、父子容器重建、
+        // 测试里反复 refresh 都会再发），而 InMemoryRouteRepository 的 listeners 是
+        // 不去重的 CopyOnWriteArrayList —— 不加保护就是"事件发几次、监听器就攒几个"，
+        // 之后每次路由变更都要 refresh 好几遍。
+        // 同类的 GatewayServerLifecycle 也有 started 标志，这里补上同一个。
+        java.util.concurrent.atomic.AtomicBoolean registered = new java.util.concurrent.atomic.AtomicBoolean(false);
         return event -> {
+            if (!registered.compareAndSet(false, true)) {
+                log.debug("Z-GW starter: change listener already registered, skip");
+                return;
+            }
             routeRepository.addChangeListener(evt -> routeMatcher.refresh(routeRepository.getRouteDefinitions()));
             routeMatcher.refresh(routeRepository.getRouteDefinitions());
         };
