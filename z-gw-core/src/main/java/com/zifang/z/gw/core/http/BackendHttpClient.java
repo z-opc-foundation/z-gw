@@ -33,7 +33,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -111,7 +115,8 @@ public class BackendHttpClient {
         return future;
     }
 
-    private FullHttpRequest buildRequest(GatewayContext ctx, String targetUri) throws Exception {
+    /** 包可见（非 private）便于测试直接断言出站请求的头集合；生产可见性不变。 */
+    static FullHttpRequest buildRequest(GatewayContext ctx, String targetUri) throws Exception {
         URI uri = new URI(targetUri);
         String path = uri.getRawPath();
         if (path == null || path.isEmpty()) path = "/";
@@ -126,14 +131,11 @@ public class BackendHttpClient {
                         : Unpooled.EMPTY_BUFFER
         );
 
-        // 复制原始请求头
+        // 复制原始请求头（只复制端到端头）
         @SuppressWarnings("unchecked")
         Map<String, String> headers = ctx.getAttribute("req.headers", Map.class);
         if (headers != null) {
-            HttpHeaders h = req.headers();
-            for (Map.Entry<String, String> e : headers.entrySet()) {
-                h.set(e.getKey(), e.getValue());
-            }
+            copyEndToEndHeaders(req.headers(), headers);
         }
 
         // 更新 Host
@@ -151,6 +153,44 @@ public class BackendHttpClient {
         req.headers().set(HttpHeaderNames.CONTENT_LENGTH, req.content().readableBytes());
         return req;
     }
+
+    /**
+     * 只把<b>端到端</b>头复制到出站请求（RFC 7230 §6.1）。
+     *
+     * <p>hop-by-hop 头属于<b>本次连接</b>，不能被代理转发。最要紧的是
+     * {@code Transfer-Encoding}：{@link #buildRequest} 自己会按实际 body 设置
+     * {@code Content-Length}（body 已被 {@code HttpObjectAggregator} 完整聚合），
+     * 若客户端的 {@code TE: chunked} 一起带过去，出站请求上两个 body 边界语义
+     * 同时存在且互相矛盾——前置代理与后端理解不一致时即构成 HTTP 请求走私。</p>
+     *
+     * <p>同仓的响应方向（{@code GatewayHandler.writeFullResponse}）本就写了
+     * {@code // 去掉 hop-by-hop headers}，此前只有请求方向漏了。</p>
+     */
+    private static void copyEndToEndHeaders(HttpHeaders target, Map<String, String> src) {
+        Set<String> drop = new HashSet<>(HOP_BY_HOP_HEADERS);
+        // Connection 头点名的那些头也要剥掉（RFC 7230 §6.1 第 2 步）
+        for (Map.Entry<String, String> e : src.entrySet()) {
+            if ("connection".equalsIgnoreCase(e.getKey()) && e.getValue() != null) {
+                for (String token : e.getValue().split(",")) {
+                    String t = token.trim().toLowerCase(Locale.ROOT);
+                    if (!t.isEmpty()) {
+                        drop.add(t);
+                    }
+                }
+            }
+        }
+        for (Map.Entry<String, String> e : src.entrySet()) {
+            if (drop.contains(e.getKey().toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            target.set(e.getKey(), e.getValue());
+        }
+    }
+
+    /** RFC 7230 §6.1 列出的固定 hop-by-hop 头（均按小写比较）。 */
+    private static final Set<String> HOP_BY_HOP_HEADERS = new HashSet<>(Arrays.asList(
+            "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+            "te", "trailer", "transfer-encoding", "upgrade"));
 
     public void shutdown() {
         if (workerGroup != null) {
