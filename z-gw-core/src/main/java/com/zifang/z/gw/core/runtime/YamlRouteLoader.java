@@ -163,9 +163,16 @@ public class YamlRouteLoader {
                 // 简化语法: "Path=/api/**"
                 String s = (String) o;
                 int eq = s.indexOf('=');
-                if (eq > 0) {
-                    result.add(PredicateDefinition.of(s.substring(0, eq).trim(), s.substring(eq + 1).trim()));
+                if (eq <= 0) {
+                    // 绝不能静默跳过。解析不出来 = 这条限制条件消失，而
+                    // RouteMatcher.matchesAllPredicates 对空谓词列表返回 true（匹配一切）：
+                    // 配置里手滑写成 "Path"（漏了 "/api/**"）会把本该只管 /api/** 的路由
+                    // 悄悄变成全放行。PredicateDefinition 构造器对 name 走
+                    // requireNonNull fail-fast，这里是同一个原则的另一半。
+                    throw new IllegalArgumentException("谓词简写缺少 '='，无法解析: [" + s
+                            + "]（应形如 Path=/api/**）");
                 }
+                result.add(PredicateDefinition.of(s.substring(0, eq).trim(), s.substring(eq + 1).trim()));
             }
         }
         return result;
@@ -187,9 +194,12 @@ public class YamlRouteLoader {
             } else if (o instanceof String) {
                 String s = (String) o;
                 int eq = s.indexOf('=');
-                if (eq > 0) {
-                    result.add(FilterDefinition.of(s.substring(0, eq).trim(), s.substring(eq + 1).trim()));
+                if (eq <= 0) {
+                    // 同 parsePredicates：过滤器被静默丢弃 = 这条过滤根本不生效。
+                    throw new IllegalArgumentException("过滤器简写缺少 '='，无法解析: [" + s
+                            + "]（应形如 StripPrefix=1）");
                 }
+                result.add(FilterDefinition.of(s.substring(0, eq).trim(), s.substring(eq + 1).trim()));
             }
         }
         return result;
