@@ -35,6 +35,7 @@ public class NettyProxyFilter implements GatewayFilter {
 
     private final BackendHttpClient backendClient;
     private final LbUriResolver uriResolver;
+    private final com.zifang.z.gw.core.config.ServerConfig serverConfig;
 
     public NettyProxyFilter() {
         this(new BackendHttpClient(new com.zifang.z.gw.core.config.ServerConfig()),
@@ -42,8 +43,21 @@ public class NettyProxyFilter implements GatewayFilter {
     }
 
     public NettyProxyFilter(BackendHttpClient backendClient, LbUriResolver uriResolver) {
+        this(backendClient, uriResolver, new com.zifang.z.gw.core.config.ServerConfig());
+    }
+
+    /**
+     * 后端整体等待上限取自 {@code ServerConfig.readTimeoutMs}。
+     * <p>此前这里是硬编码的 {@code 30, SECONDS}，与 {@code ServerConfig.readTimeoutMs}
+     * 的默认值恰好相同，看着"对得上"，实则<b>与出站 {@code ReadTimeoutHandler} 是两个上限</b>：
+     * 运维把 readTimeoutMs 调大时，出站等更久，这里还是 30 秒就返回超时——配置不生效。</p>
+     */
+    public NettyProxyFilter(BackendHttpClient backendClient, LbUriResolver uriResolver,
+                            com.zifang.z.gw.core.config.ServerConfig serverConfig) {
         this.backendClient = backendClient;
         this.uriResolver = uriResolver;
+        this.serverConfig = serverConfig == null
+                ? new com.zifang.z.gw.core.config.ServerConfig() : serverConfig;
     }
 
     @Override
@@ -97,7 +111,7 @@ public class NettyProxyFilter implements GatewayFilter {
         // 发送请求
         CompletableFuture<FullHttpResponse> future = backendClient.execute(ctx, instance, upstreamPath, ctx.getQuery());
         try {
-            FullHttpResponse resp = future.get(30, TimeUnit.SECONDS);
+            FullHttpResponse resp = future.get(serverConfig.getReadTimeoutMs(), TimeUnit.MILLISECONDS);
             ctx.setAttribute("resp.status", String.valueOf(resp.status().code()));
             GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp);
         } catch (java.util.concurrent.TimeoutException te) {

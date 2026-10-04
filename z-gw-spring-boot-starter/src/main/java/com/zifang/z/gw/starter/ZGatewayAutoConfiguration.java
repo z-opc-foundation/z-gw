@@ -67,8 +67,8 @@ public class ZGatewayAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(FilterChainBootstrap.class)
-    public FilterChainBootstrap filterChainBootstrap(FilterAssembler filterAssembler) {
-        return new FilterChainBootstrap(filterAssembler);
+    public FilterChainBootstrap filterChainBootstrap(FilterAssembler filterAssembler, ZGatewayProperties props) {
+        return new FilterChainBootstrap(filterAssembler, props.getServer());
     }
 
     @Bean(destroyMethod = "shutdown")

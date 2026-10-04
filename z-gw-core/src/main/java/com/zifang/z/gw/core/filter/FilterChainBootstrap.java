@@ -5,6 +5,8 @@ import com.zifang.z.gw.core.filter.global.CorsGlobalFilter;
 import com.zifang.z.gw.core.filter.global.LoggingGlobalFilter;
 import com.zifang.z.gw.core.filter.global.MetricsGlobalFilter;
 import com.zifang.z.gw.core.filter.global.TracingGlobalFilter;
+import com.zifang.z.gw.core.http.BackendHttpClient;
+import com.zifang.z.gw.core.service.LbUriResolver;
 import com.zifang.z.gw.core.router.FilterAssembler;
 import com.zifang.z.gw.core.filter.factory.AddRequestHeaderFilterFactory;
 import com.zifang.z.gw.core.filter.factory.AddResponseHeaderFilterFactory;
@@ -31,14 +33,29 @@ public class FilterChainBootstrap {
 
     private final FilterAssembler filterAssembler;
     private final GatewayFilterFactoryRegistry factoryRegistry;
+    /** 传给 NettyProxyFilter，让后端等待上限跟随配置而不是硬编码。 */
+    private final com.zifang.z.gw.core.config.ServerConfig serverConfig;
 
     public FilterChainBootstrap(FilterAssembler filterAssembler) {
         this(filterAssembler, GatewayFilterFactoryRegistry.getInstance());
     }
 
     public FilterChainBootstrap(FilterAssembler filterAssembler, GatewayFilterFactoryRegistry factoryRegistry) {
+        this(filterAssembler, factoryRegistry, new com.zifang.z.gw.core.config.ServerConfig());
+    }
+
+    public FilterChainBootstrap(FilterAssembler filterAssembler,
+                                com.zifang.z.gw.core.config.ServerConfig serverConfig) {
+        this(filterAssembler, GatewayFilterFactoryRegistry.getInstance(), serverConfig);
+    }
+
+    public FilterChainBootstrap(FilterAssembler filterAssembler,
+                                GatewayFilterFactoryRegistry factoryRegistry,
+                                com.zifang.z.gw.core.config.ServerConfig serverConfig) {
         this.filterAssembler = filterAssembler;
         this.factoryRegistry = factoryRegistry;
+        this.serverConfig = serverConfig == null
+                ? new com.zifang.z.gw.core.config.ServerConfig() : serverConfig;
     }
 
     public void installDefaults() {
@@ -51,7 +68,8 @@ public class FilterChainBootstrap {
         filterAssembler.addGlobalFilter(new ErrorHandlingGlobalFilter());
 
         // === 代理过滤器: order=999 最晚执行 ===
-        filterAssembler.addGlobalFilter(new NettyProxyFilter());
+        filterAssembler.addGlobalFilter(new NettyProxyFilter(
+                new BackendHttpClient(serverConfig), LbUriResolver.defaults(), serverConfig));
 
         // === 内置过滤器工厂 ===
         factoryRegistry.register(new StripPrefixFilterFactory());
