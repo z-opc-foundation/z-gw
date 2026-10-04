@@ -80,8 +80,11 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
             // 路由匹配
             RouteDefinition route = routeMatcher.route(ctx);
             if (route == null) {
+                // path 与 requestId 都来自请求方(path 走 URL 解码、requestId 直接取
+                // X-Request-Id 头且无校验)，必须与下面两处一样过 escape()。
                 writeJson(nettyCtx, request, 404,
-                        "{\"error\":\"Not Found\",\"message\":\"No route matched " + ctx.getPath() + "\",\"requestId\":\"" + ctx.getRequestId() + "\"}");
+                        "{\"error\":\"Not Found\",\"message\":\"No route matched " + escape(ctx.getPath())
+                                + "\",\"requestId\":\"" + escape(ctx.getRequestId()) + "\"}");
                 return;
             }
             ctx.setMatchedRoute(route);
@@ -224,8 +227,34 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         }
     }
 
+    /**
+     * JSON 字符串值转义。
+     * <p>必须覆盖 JSON 规范要求转义的全部控制字符（U+0000–U+001F）：
+     * 原来的链式 {@code replace} 只处理 {@code " \\ \n \r}，漏掉 {@code \t \b \f}
+     * 及其余控制字符，而它们<b>原样出现在 JSON 里是非法的</b>。path 走
+     * {@code QueryStringDecoder} 会做 URL 解码，{@code %09} 就是 tab。</p>
+     */
     private static String escape(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+        StringBuilder sb = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"':  sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\b': sb.append("\\b"); break;
+                case '\f': sb.append("\\f"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
+        return sb.toString();
     }
 }
