@@ -47,7 +47,9 @@ import java.util.concurrent.TimeUnit;
  * <p>设计参考 SCG 的 {@code NettyRoutingFilter}:
  * <ul>
  *   <li>每个请求一个 {@link CompletableFuture},handler 收到响应时 complete</li>
- *   <li>支持 HTTP/HTTPS(http 通过 SslContext 切换)</li>
+ *   <li><b>只支持明文 HTTP</b>。TLS 尚未实现：pipeline 里没有 SslHandler。
+ *       因此 {@code LbUriResolver} 会明确拒绝 {@code https://} 路由，而不是降级成明文
+ *       —— 降级等于把 Authorization / Cookie 明文发出去。</li>
  *   <li>支持 HTTP 1.1(简化版,HTTP/2 后续通过 Netty Http2Channel 升级)</li>
  * </ul>
  */

@@ -58,8 +58,17 @@ public class LbUriResolver {
 
         switch (scheme.toLowerCase()) {
             case SCHEME_HTTP:
-            case SCHEME_HTTPS:
                 return resolveStatic(uri);
+            case SCHEME_HTTPS:
+                // 明确拒绝，不静默降级成明文。
+                // 出站客户端 BackendHttpClient 的 pipeline 里没有任何 SslHandler
+                // （全仓 grep SslContext|SslHandler 只命中它自己那行注释），
+                // 而 buildRequest 会把客户端的 Authorization / Cookie 原样带出去。
+                // 之前 https 走的是 resolveStatic 的默认端口 80 且用明文 HttpClientCodec
+                // —— 也就是"以为配了 https 就安全了"，实际把凭证裸奔发到网络上。
+                throw new IllegalStateException("https:// 上游未实现：出站客户端没有 TLS 支持"
+                        + "（BackendHttpClient pipeline 无 SslHandler），静默降级会把 Authorization/Cookie 明文发出。"
+                        + "请改用 http:// 上游，或先为出站客户端补 TLS。uri=" + uriStr);
             case SCHEME_LB:
                 return resolveByLoadBalancer(uri.getHost(), ctx);
             case SCHEME_FORWARD:
