@@ -255,12 +255,27 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
     // === 写响应 ===
 
     public static void writeJson(ChannelHandlerContext nettyCtx, FullHttpRequest request, int status, String json) {
+        writeJson(nettyCtx, request, status, json, null);
+    }
+
+    /**
+     * 写 JSON 响应，可附带额外响应头。
+     *
+     * @param extraHeaders 额外要写进响应的头；null 表示没有
+     */
+    public static void writeJson(ChannelHandlerContext nettyCtx, FullHttpRequest request, int status,
+                                 String json, java.util.Map<String, String> extraHeaders) {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
                 HttpResponseStatus.valueOf(status), Unpooled.wrappedBuffer(bytes));
         resp.headers()
                 .set(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.APPLICATION_JSON)
                 .set(HttpHeaderNames.CONTENT_LENGTH, bytes.length);
+        if (extraHeaders != null) {
+            for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
+                resp.headers().set(e.getKey(), e.getValue());
+            }
+        }
 
         boolean keepAlive = HttpUtil.isKeepAlive(request);
         if (keepAlive) {
@@ -272,9 +287,25 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         }
     }
 
+    /**
+     * 写 {@link GatewayException} 对应的错误响应。
+     *
+     * <p>429 额外带 {@code Retry-After}：{@link RateLimiter.Result} 一直带着
+     * {@code retryAfterSeconds}，{@link com.zifang.z.gw.api.GatewayException.RateLimitedException}
+     * 也一直存着它，但此前<b>没有任何地方把它写进响应</b>——{@code RateLimiter} 接口
+     * 注释承诺的"给 429 响应 Retry-After 头"一直没兑现，客户端只能自己猜退避。
+     * 顺带修掉了令牌桶补充率为 0 时 {@code retryAfterSeconds} 变成 9223372036 的问题。</p>
+     */
     public static void writeError(ChannelHandlerContext nettyCtx, FullHttpRequest request, GatewayException ge) {
-        writeJson(nettyCtx, request, ge.getHttpStatus(),
-                "{\"error\":\"" + escape(ge.getCode()) + "\",\"message\":\"" + escape(ge.getMessage()) + "\"}");
+        String json = "{\"error\":\"" + escape(ge.getCode()) + "\",\"message\":\"" + escape(ge.getMessage()) + "\"}";
+        if (ge instanceof GatewayException.RateLimitedException) {
+            long retry = ((GatewayException.RateLimitedException) ge).getRetryAfterSeconds();
+            Map<String, String> extra = new HashMap<>(2);
+            extra.put(HttpHeaderNames.RETRY_AFTER.toString(), Long.toString(Math.max(0L, retry)));
+            writeJson(nettyCtx, request, ge.getHttpStatus(), json, extra);
+        } else {
+            writeJson(nettyCtx, request, ge.getHttpStatus(), json);
+        }
     }
 
     /**
