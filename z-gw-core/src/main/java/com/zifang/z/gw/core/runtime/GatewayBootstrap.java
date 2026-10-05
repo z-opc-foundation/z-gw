@@ -48,7 +48,11 @@ public class GatewayBootstrap {
         this.backendClient = new BackendHttpClient(properties.getServer());
 
         // 注册所有内置全局过滤器 + 过滤器工厂
-        this.filterBootstrap = new FilterChainBootstrap(filterAssembler);
+        // 必须传 properties.getServer()：installDefaults() 内部会用它建 BackendHttpClient
+        // 与 NettyProxyFilter，两处都读 readTimeoutMs / connectTimeoutMs / maxPoolSize /
+        // maxContentLength / businessThread*。此前这里调的是 1 参构造器，落到
+        // new ServerConfig() 默认值上——非 Spring 入口下运维配的 server 段整个被忽略。
+        this.filterBootstrap = new FilterChainBootstrap(filterAssembler, properties.getServer());
 
         GatewayHandler handler = new GatewayHandler(
                 properties.getServer(), routeMatcher, filterAssembler, backendClient);

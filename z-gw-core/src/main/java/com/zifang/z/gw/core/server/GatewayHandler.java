@@ -21,12 +21,17 @@ import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import io.netty.util.CharsetUtil;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 网关请求处理器 — Netty {@code SimpleChannelInboundHandler<FullHttpRequest>} 实现。
@@ -36,19 +41,32 @@ import java.util.Map;
  *   <li>解析 FullHttpRequest → 构造 GatewayContext (path/query/headers/body)</li>
  *   <li>调用 RouteMatcher 匹配路由</li>
  *   <li>未命中 → 404</li>
- *   <li>命中 → 组装过滤器链 (全局 + 路由级) → 执行</li>
+ *   <li>命中 → 组装过滤器链 (全局 + 路由级) → 投递到<b>业务线程池</b>执行</li>
  *   <li>最后过滤器(ProxyFilter)实际出站转发</li>
  *   <li>响应写回客户端</li>
  * </ol>
+ *
+ * <p><b>线程模型</b>：解析与路由匹配在 Netty EventLoop 上（不阻塞），过滤器链整体在
+ * {@code ServerConfig.businessThread*} 定义的线程池上跑——链尾 {@code NettyProxyFilter}
+ * 要阻塞等后端响应，EventLoop 被占住会让同一 EventLoop 上所有通道的读写与超时检测停摆。</p>
  */
 public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
     private static final Logger log = LoggerFactory.getLogger(GatewayHandler.class);
 
+    /**
+     * 标记"本请求的响应已经写出"。
+     * <p>链里"某个过滤器先写了响应、后一个又抛异常"是可能发生的；不设这道闸就会往同一条
+     * 连接上连发两个 HTTP 响应（Netty 不会拦，是客户端先炸）。</p>
+     */
+    static final String RESP_WRITTEN = "resp.written";
+
     private final ServerConfig serverConfig;
     private final RouteMatcher routeMatcher;
     private final FilterAssembler filterAssembler;
     private final BackendHttpClient backendClient;
+    /** 跑过滤器链用的业务线程池，按 {@code ServerConfig.businessThread*} 建。 */
+    private final ThreadPoolExecutor businessExecutor;
 
     public GatewayHandler(ServerConfig serverConfig,
                           RouteMatcher routeMatcher,
@@ -58,6 +76,45 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         this.routeMatcher = routeMatcher;
         this.filterAssembler = filterAssembler;
         this.backendClient = backendClient;
+        this.businessExecutor = newBusinessExecutor(serverConfig);
+    }
+
+    /**
+     * 按 {@code ServerConfig} 的 businessThread* 建池子。
+     *
+     * <p>这三个参数此前只有声明和 getter/setter，全仓零读取点，而 {@link ServerConfig}
+     * 上方注释就写着"业务线程池(阻塞操作放这里,避免占用 Netty EventLoop)"——即链尾那次
+     * 阻塞等待正是被这条注释点名要搬走的东西。</p>
+     *
+     * <p>队列满用 {@link ThreadPoolExecutor.AbortPolicy}：直接拒并回错误响应，而不是
+     * CallerRuns 把调用方（Netty EventLoop）拖回阻塞。</p>
+     */
+    private static ThreadPoolExecutor newBusinessExecutor(ServerConfig cfg) {
+        ServerConfig c = cfg == null ? new ServerConfig() : cfg;
+        int core = Math.max(1, c.getBusinessThreadCore());
+        int max = Math.max(core, c.getBusinessThreadMax());
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                core, max, 60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<Runnable>(Math.max(1, c.getBusinessQueue())),
+                new DefaultThreadFactory("zgw-business", true),
+                new ThreadPoolExecutor.AbortPolicy());
+        executor.prestartAllCoreThreads();
+        return executor;
+    }
+
+    /** 释放业务线程池；由 {@link GatewayServer#shutdown()} 调用。 */
+    public void shutdown() {
+        if (businessExecutor != null) {
+            businessExecutor.shutdownNow();
+        }
+    }
+
+    /**
+     * 本 handler 业务线程池的当前线程数（包可见，供测试与监控观察池是否真按配置建）。
+     * <p>不能靠线程名数——surefire 一个模块复用一个 JVM，同名池不止这一个。</p>
+     */
+    int businessPoolSize() {
+        return businessExecutor == null ? 0 : businessExecutor.getPoolSize();
     }
 
     @Override
@@ -89,14 +146,39 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
             }
             ctx.setMatchedRoute(route);
 
-            // 组装过滤器链并执行
-            filterAssembler.assemble(ctx, route).filter(ctx);
+            // 链里有阻塞操作（等后端响应），整条链挪到业务线程池执行
+            try {
+                businessExecutor.execute(() -> runFilterChain(ctx, request, route));
+            } catch (RejectedExecutionException re) {
+                log.warn("[{}] business pool saturated, core={} max={} queue={}",
+                        ctx.getRequestId(), serverConfig.getBusinessThreadCore(),
+                        serverConfig.getBusinessThreadMax(), serverConfig.getBusinessQueue());
+                writeError(nettyCtx, request, new GatewayException.BadGatewayException(
+                        "Gateway overloaded: business queue full"));
+            }
         } catch (GatewayException ge) {
             writeError(nettyCtx, request, ge);
         } catch (Exception e) {
-            log.error("[{}] Gateway error", ctx.getRequestId(), e);
-            writeJson(nettyCtx, request, 500,
-                    "{\"error\":\"Internal Server Error\",\"message\":\"" + escape(e.getMessage()) + "\"}");
+            writeInternalError(nettyCtx, request, ctx.getRequestId(), e);
+        }
+    }
+
+    /**
+     * 在业务线程池上执行过滤器链。
+     *
+     * <p>链上 {@code ErrorHandlingGlobalFilter}(order=900) 兜住它之后的过滤器；它<b>之前</b>
+     * 的（Tracing/Metrics/Cors/Logging）抛出来会落到这里的 catch。异常不再抛回
+     * {@code channelRead0}（那里早就返回了），必须就地转成响应。</p>
+     */
+    private void runFilterChain(GatewayContext ctx, FullHttpRequest request, RouteDefinition route) {
+        try {
+            filterAssembler.assemble(ctx, route).filter(ctx);
+        } catch (GatewayException ge) {
+            log.warn("[{}] GatewayException: status={} code={} msg={}",
+                    ctx.getRequestId(), ge.getHttpStatus(), ge.getCode(), ge.getMessage());
+            writeErrorOnce(ctx, request, ge);
+        } catch (Exception e) {
+            writeInternalErrorOnce(ctx, request, e);
         }
     }
 
@@ -193,6 +275,54 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
     public static void writeError(ChannelHandlerContext nettyCtx, FullHttpRequest request, GatewayException ge) {
         writeJson(nettyCtx, request, ge.getHttpStatus(),
                 "{\"error\":\"" + escape(ge.getCode()) + "\",\"message\":\"" + escape(ge.getMessage()) + "\"}");
+    }
+
+    /**
+     * 兜底 500 —— {@link #channelRead0} 与业务线程上的链共用同一条写入路径，
+     * 共用 {@link #escape}（消息里的控制字符原样进 JSON 是非法的）。
+     */
+    public static void writeInternalError(ChannelHandlerContext nettyCtx, FullHttpRequest request,
+                                          String requestId, Throwable cause) {
+        log.error("[{}] Gateway error", requestId, cause);
+        writeJson(nettyCtx, request, 500,
+                "{\"error\":\"Internal Server Error\",\"message\":\"" + escape(cause.getMessage()) + "\"}");
+    }
+
+    /**
+     * 写 {@link GatewayException} 响应，同一请求只写一次。
+     *
+     * <p>供已经离开 {@code channelRead0} 的调用方使用（业务线程上的过滤器链、
+     * {@code ErrorHandlingGlobalFilter}）：那条路上 {@link #writeError} 不设闸，
+     * 而"先写了响应、后一个过滤器又抛异常"会往同一条连接上连发两个 HTTP 响应。</p>
+     *
+     * @return true 表示本次确实写了
+     */
+    public static boolean writeErrorOnce(GatewayContext ctx, FullHttpRequest request, GatewayException ge) {
+        ChannelHandlerContext nettyCtx = ctx.getAttribute("netty.ctx", ChannelHandlerContext.class);
+        if (nettyCtx == null || !claimResponse(ctx)) {
+            return false;
+        }
+        writeError(nettyCtx, request, ge);
+        return true;
+    }
+
+    /** 兜底 500 的同门版本，同一请求只写一次。 */
+    public static boolean writeInternalErrorOnce(GatewayContext ctx, FullHttpRequest request, Throwable cause) {
+        ChannelHandlerContext nettyCtx = ctx.getAttribute("netty.ctx", ChannelHandlerContext.class);
+        if (nettyCtx == null || !claimResponse(ctx)) {
+            return false;
+        }
+        writeInternalError(nettyCtx, request, ctx.getRequestId(), cause);
+        return true;
+    }
+
+    /** 抢占"本请求响应尚未写出"的名额；抢到返回 true。 */
+    public static boolean claimResponse(GatewayContext ctx) {
+        if (Boolean.TRUE.equals(ctx.getAttribute(RESP_WRITTEN))) {
+            return false;
+        }
+        ctx.setAttribute(RESP_WRITTEN, Boolean.TRUE);
+        return true;
     }
 
     public static void writeCorsOptions(ChannelHandlerContext nettyCtx, FullHttpRequest request) {

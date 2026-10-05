@@ -31,7 +31,12 @@ import java.util.concurrent.TimeUnit;
  * <ul>
  *   <li>bossGroup: 1 线程,接 accept</li>
  *   <li>workerGroup: CPU * 2 线程,处理 I/O</li>
- *   <li>业务阻塞操作通过 {@link com.zifang.z.gw.core.http.BackendHttpClient} 走独立 EventLoop</li>
+ *   <li>workerGroup 上只做解析与路由匹配;过滤器链（含阻塞等待后端响应）投递到
+ *       {@link ServerConfig#getBusinessThreadCore()} 定义的业务线程池。
+ *       <br>此前 {@code BackendHttpClient} 那句"走独立 EventLoop"只对<b>出站连接与 IO</b>成立：
+ *       等待 {@code CompletableFuture} 的 {@code future.get()} 一直发生在 workerGroup 的
+ *       EventLoop 线程上，EventLoop 一被占住，同一 EventLoop 上所有通道的读写与超时检测
+ *       全部停摆，并发能力也被压到"EventLoop 线程数"个请求。</li>
  * </ul>
  */
 public class GatewayServer {
@@ -110,6 +115,9 @@ public class GatewayServer {
             }
             if (workerGroup != null) {
                 workerGroup.shutdownGracefully().syncUninterruptibly();
+            }
+            if (gatewayHandler != null) {
+                gatewayHandler.shutdown();
             }
             started = false;
             log.info("Z-GW shutdown complete");

@@ -113,6 +113,8 @@ public class NettyProxyFilter implements GatewayFilter {
         try {
             FullHttpResponse resp = future.get(serverConfig.getReadTimeoutMs(), TimeUnit.MILLISECONDS);
             ctx.setAttribute("resp.status", String.valueOf(resp.status().code()));
+            // 抢下"响应尚未写出"的名额：万一后面的过滤器再抛异常，不要往这条连接上发第二个响应
+            GatewayHandler.claimResponse(ctx);
             GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp);
         } catch (java.util.concurrent.TimeoutException te) {
             throw new GatewayException.GatewayTimeoutException("Backend timeout");

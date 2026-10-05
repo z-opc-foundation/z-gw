@@ -46,6 +46,16 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
     public SlidingWindowCircuitBreaker(String name, int errorThresholdPercentage,
                                        int requestVolumeThreshold, long sleepWindowMs,
                                        int windowSize, long windowDurationMs) {
+        // 这两个参数此前只有声明和 getter，判定逻辑一次都没读过：窗口实际是
+        // "从上次恢复起累计、永不过期"的两只计数器，windowSize/windowDurationMs 是死参数。
+        // 现在它们真正参与判定，先把非法值挡在构造期——windowDurationMs 参与除法，
+        // 传 0 会让每个请求都撞 ArithmeticException。
+        if (windowSize <= 0) {
+            throw new IllegalArgumentException("windowSize must be > 0, got " + windowSize);
+        }
+        if (windowDurationMs <= 0) {
+            throw new IllegalArgumentException("windowDurationMs must be > 0, got " + windowDurationMs);
+        }
         this.name = name;
         this.errorThresholdPercentage = errorThresholdPercentage;
         this.requestVolumeThreshold = requestVolumeThreshold;
@@ -61,7 +71,7 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
 
     @Override
     public boolean allowRequest(String key) {
-        BreakerState s = states.computeIfAbsent(key, k -> new BreakerState());
+        BreakerState s = states.computeIfAbsent(key, k -> new BreakerState(windowSize));
         State current = s.state.get();
         if (current == State.CLOSED) return true;
         if (current == State.OPEN) {
@@ -82,7 +92,7 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
 
     @Override
     public void recordSuccess(String key, long durationMs) {
-        BreakerState s = states.computeIfAbsent(key, k -> new BreakerState());
+        BreakerState s = states.computeIfAbsent(key, k -> new BreakerState(windowSize));
         State current = s.state.get();
         if (current == State.HALF_OPEN) {
             int ok = s.halfOpenSuccess.incrementAndGet();
@@ -98,7 +108,7 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
 
     @Override
     public void recordFailure(String key, long durationMs, Throwable cause) {
-        BreakerState s = states.computeIfAbsent(key, k -> new BreakerState());
+        BreakerState s = states.computeIfAbsent(key, k -> new BreakerState(windowSize));
         State current = s.state.get();
         if (current == State.HALF_OPEN) {
             s.halfOpenFailure.incrementAndGet();
@@ -123,52 +133,83 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
 
     // === 内部 ===
 
+    /**
+     * 滑动窗口内的失败率是否达到阈值。
+     *
+     * <p>只统计仍在窗口内的桶——这是 {@code windowSize} / {@code windowDurationMs}
+     * 第一次真正起作用的地方：窗口滑走的老失败不再计入，统计不会像原来那样
+     * 无限期地累积历史失败率。</p>
+     */
     private boolean shouldTrip(BreakerState s) {
-        long total = s.totalCount.sum();
-        long failure = s.failureCount.sum();
+        long slotTs = currentSlotTs();
+        long oldestSlotTs = slotTs - (windowSize - 1);
+        long total = 0;
+        long failure = 0;
+        for (Bucket b : s.buckets) {
+            long ts = b.slotTs.get();
+            // -1 = 从未写入；超出窗口范围 = 已滑出
+            if (ts < oldestSlotTs || ts > slotTs) {
+                continue;
+            }
+            total += b.total.get();
+            failure += b.failure.get();
+        }
         if (total < requestVolumeThreshold) return false;
         int pct = (int) (failure * 100 / total);
         return pct >= errorThresholdPercentage;
     }
 
+    private long currentSlotTs() {
+        return System.currentTimeMillis() / windowDurationMs;
+    }
+
+    /**
+     * 记一次请求到窗口。
+     *
+     * <p>环形下标 {@code slotTs % windowSize}：同一个槽位被新的一段
+     * {@code windowDurationMs} 占用时先清零再计数，这一步就是"滑窗"的滚动。</p>
+     */
     private void recordToWindow(BreakerState s, boolean success) {
-        s.totalCount.increment();
-        if (!success) s.failureCount.increment();
+        long slotTs = currentSlotTs();
+        Bucket b = s.buckets[(int) Math.floorMod(slotTs, (long) windowSize)];
+        if (b.slotTs.getAndSet(slotTs) != slotTs) {
+            b.total.set(0L);
+            b.failure.set(0L);
+        }
+        b.total.incrementAndGet();
+        if (!success) {
+            b.failure.incrementAndGet();
+        }
     }
 
     private void resetWindow(BreakerState s) {
-        s.totalCount.reset();
-        s.failureCount.reset();
+        for (Bucket b : s.buckets) {
+            b.slotTs.set(-1L);
+            b.total.set(0L);
+            b.failure.set(0L);
+        }
     }
 
     private static class BreakerState {
         final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
         final AtomicLong openedAtMs = new AtomicLong(0);
-        final Counter totalCount = new Counter();
-        final Counter failureCount = new Counter();
+        final Bucket[] buckets;
         final AtomicInteger halfOpenSuccess = new AtomicInteger(0);
         final AtomicInteger halfOpenFailure = new AtomicInteger(0);
         final AtomicInteger halfOpenInFlight = new AtomicInteger(0);
+
+        BreakerState(int windowSize) {
+            this.buckets = new Bucket[windowSize];
+            for (int i = 0; i < windowSize; i++) {
+                this.buckets[i] = new Bucket();
+            }
+        }
     }
 
-    /** 简易计数器(long) */
-    private static class Counter {
-        private final AtomicLong v = new AtomicLong();
-
-        void increment() {
-            v.incrementAndGet();
-        }
-
-        long sum() {
-            return v.get();
-        }
-
-        long sumThenReset() {
-            return v.getAndSet(0);
-        }
-
-        void reset() {
-            v.set(0);
-        }
+    /** 窗口里的一个时间桶。{@code slotTs = -1} 表示这一槽还没被写过。 */
+    private static class Bucket {
+        final AtomicLong slotTs = new AtomicLong(-1L);
+        final AtomicLong total = new AtomicLong();
+        final AtomicLong failure = new AtomicLong();
     }
 }
