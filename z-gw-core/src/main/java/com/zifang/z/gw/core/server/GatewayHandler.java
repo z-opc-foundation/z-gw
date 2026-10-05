@@ -270,7 +270,9 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
                 HttpResponseStatus.valueOf(status), Unpooled.wrappedBuffer(bytes));
         resp.headers()
                 .set(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.APPLICATION_JSON)
-                .set(HttpHeaderNames.CONTENT_LENGTH, bytes.length);
+                .set(HttpHeaderNames.CONTENT_LENGTH, bytes.length)
+                // 与 writeCorsOptions 声明的同一个策略。少了这一格，预检会过、而浏览器读不到实际响应体。
+                .set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
         if (extraHeaders != null) {
             for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
                 resp.headers().set(e.getKey(), e.getValue());
@@ -377,6 +379,12 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         // 去掉 hop-by-hop headers
         client.headers().remove("Transfer-Encoding");
         client.headers().set(HttpHeaderNames.CONTENT_LENGTH, client.content().readableBytes());
+        // 浏览器读的是这一份实际响应上的 ACAO，不是预检那份。此前只有 writeCorsOptions 设过，
+        // 于是预检 204 正常、正式请求也 200，但浏览器照样拦掉响应体。
+        // ⚠ 用 contains 判断而不是直接 set：后端若自己显式给了 ACAO，那是那个服务的策略，网关不覆盖。
+        if (!client.headers().contains(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN)) {
+            client.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+        }
 
         boolean keepAlive = HttpUtil.isKeepAlive(request);
         if (keepAlive) {
