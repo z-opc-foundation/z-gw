@@ -369,6 +369,30 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
     }
 
     public static void writeFullResponse(ChannelHandlerContext nettyCtx, FullHttpRequest request, FullHttpResponse backendResp) {
+        writeFullResponse(nettyCtx, request, backendResp, null);
+    }
+
+    /**
+     * 写回后端响应，可附带路由级过滤器声明的额外响应头。
+     *
+     * <p>{@code extraHeaders} 即 {@code AddResponseHeader} 过滤器写进 ctx 的
+     * {@code resp.headers} attribute。此前该 attribute <b>全仓无人读取</b> ——
+     * 三参版 {@link #writeFullResponse} 拿不到 ctx，也就无从合并，而过滤器自己的
+     * Javadoc 写着「由 GatewayHandler.writeFullResponse 时合并」。
+     * {@code YamlRouteLoader.defaultRoutes()} 的演示路由
+     * {@code AddResponseHeader=X-Gateway, z-gw-demo} 因此从未出现在任何响应上。</p>
+     *
+     * <p>合并放在 ACAO 兜底之后。这不是为了让它压过 ACAO 兜底（那样的话把这段挪到兜底
+     * 前面结果完全一样 —— {@code contains} 判断天然是"谁先写谁算数"），而是为了读代码时
+     * 一眼能看出顺序：先给后端/默认策略留位置，再落路由级显式配置。兜底那个
+     * {@code contains} 是为了尊重后端自己显式给出的 CORS 策略，不该把网关自己的配置
+     * 也挡在外面。优先级与请求方向 {@code BackendHttpClient.copyEndToEndHeaders} 的
+     * {@code target.set(...)} 一致：显式过滤器 &gt; 后端。</p>
+     *
+     * @param extraHeaders 额外要写进响应的头；null 表示没有
+     */
+    public static void writeFullResponse(ChannelHandlerContext nettyCtx, FullHttpRequest request,
+                                         FullHttpResponse backendResp, Map<String, String> extraHeaders) {
         // 保留 backend content 但设置新 status
         DefaultFullHttpResponse client = new DefaultFullHttpResponse(
                 backendResp.protocolVersion(),
@@ -384,6 +408,13 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         // ⚠ 用 contains 判断而不是直接 set：后端若自己显式给了 ACAO，那是那个服务的策略，网关不覆盖。
         if (!client.headers().contains(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN)) {
             client.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+        }
+        // AddResponseHeader 等过滤器声明的头，最后落地（优先级最高）
+        if (extraHeaders != null) {
+            for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) continue;
+                client.headers().set(e.getKey(), e.getValue());
+            }
         }
 
         boolean keepAlive = HttpUtil.isKeepAlive(request);

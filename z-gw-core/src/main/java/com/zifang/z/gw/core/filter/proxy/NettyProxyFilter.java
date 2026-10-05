@@ -123,7 +123,12 @@ public class NettyProxyFilter implements GatewayFilter {
                 ctx.setAttribute("resp.status", String.valueOf(resp.status().code()));
                 // 抢下"响应尚未写出"的名额：万一后面的过滤器再抛异常，不要往这条连接上发第二个响应
                 GatewayHandler.claimResponse(ctx);
-                GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp);
+                // AddResponseHeader 过滤器（order=800，先于本过滤器执行）把声明的头攒在
+                // ctx 的 resp.headers 里，这里一并带出去
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, String> extraRespHeaders =
+                        ctx.getAttribute("resp.headers", java.util.Map.class);
+                GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp, extraRespHeaders);
             } catch (java.util.concurrent.TimeoutException te) {
                 throw new GatewayException.GatewayTimeoutException("Backend timeout");
             } catch (java.util.concurrent.ExecutionException ee) {

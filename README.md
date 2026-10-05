@@ -282,6 +282,30 @@ yml 简写 `Weight=user_group,90` 经 `PredicateDefinition.of(name, singleArg)` 
 **升级影响**：配了灰度的部署在升级后会真的开始分流。升级前请确认同组路由的
 非 Weight 谓词一致（否则原先"看起来是 100%/0%"的隐性配置会突然真的按比例走）。
 
+### 6. `AddResponseHeader` 此前是一条断链（行为变更）
+
+`AddResponseHeader` 过滤器把头写进 ctx 的 `resp.headers` attribute，而**全仓没有
+任何一处读它**。过滤器自己的 Javadoc 写着「由 `GatewayHandler.writeFullResponse`
+时合并」，但那个方法三个参数里压根没有 ctx，拿不到这个 attribute。
+
+工厂解析是对的（它按 `_genkey_0` 拆出了 `X-Gateway` 和 `z-gw-demo`），过滤器也
+真的在 `DefaultGatewayFilterChain` 里跑了（order=800，先于 order=999 的代理过滤器），
+只是结果被丢在半路。后果：`YamlRouteLoader.defaultRoutes()` 的演示路由明写
+`AddResponseHeader=X-Gateway, z-gw-demo`，实际响应里从来没有这个头。
+对称方向的 `AddRequestHeader` 是通的（`BackendHttpClient` 用 `target.set(...)`
+合并 `req.headers`），只有响应方向断了。
+
+现在 `writeFullResponse` 增加了带 `extraHeaders` 的重载，`NettyProxyFilter` 把
+`ctx` 里的 `resp.headers` 传进去；三参重载保留并委托给它，既有调用方不受影响。
+
+**优先级**：显式过滤器 > 后端（与请求方向 `target.set(...)` 一致）。因此
+`AddResponseHeader=Access-Control-Allow-Origin, https://app.example.com` 现在能
+把网关给的 `*` 兜底换成具体来源——兜底那段 `contains` 判断是为了尊重后端自己
+显式给出的 CORS 策略，不该把网关自己的路由级配置也挡在外面。
+
+**升级影响**：此前配了 `AddResponseHeader` 却没看到头的部署，升级后这些头会真的
+出现在响应上。若某个头与后端同名，会以网关配置的值为准。
+
 ---
 
 ## 🧪 测试
@@ -290,8 +314,8 @@ yml 简写 `Weight=user_group,90` 经 `PredicateDefinition.of(name, singleArg)` 
 mvn test
 ```
 
-实测规模：**138 个 `@Test`**（`z-gw-core` 135 + `z-gw-spring-boot-starter` 3），
-22 个测试类，无外部依赖即可全跑：
+实测规模：**145 个 `@Test`**（`z-gw-core` 142 + `z-gw-spring-boot-starter` 3），
+23 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
@@ -310,6 +334,7 @@ mvn test
 | `RateLimiterTest` | 6 | 三个限流器基本语义 |
 | `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
 | `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
+| `AddResponseHeaderEndToEndTest` | 7 | `AddResponseHeader` 声明的头真的落到出站响应，并定义与后端/ACAO 兜底的优先级 |
 | `LeastConnectionsInFlightTest` | 5 | 最少连接的输入真有人维护（转发中在计数、四条出口都归还） |
 | `WeightedLoadBalancerScaleTest` | 4 | SWRR 状态跟着实例数走（扩容不再把整条路由打成 502） |
 | `SlidingWindowCircuitBreakerHalfOpenLeakTest` | 4 | 半开期在飞名额无条件归还，后端恢复后熔断器能闭合 |
