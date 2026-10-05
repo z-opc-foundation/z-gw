@@ -2,6 +2,7 @@ package com.zifang.z.gw.core.ratelimit;
 
 import com.zifang.z.gw.api.RateLimiter;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
@@ -55,8 +56,44 @@ public class TokenBucketRateLimiter implements RateLimiter {
 
     @Override
     public Result tryAcquire(String key) {
+        long now = nanoClock.getAsLong();
+        sweepFullBuckets(now);
         Bucket b = buckets.computeIfAbsent(key, k -> new Bucket(capacity, nanoClock.getAsLong()));
         return b.tryAcquire(refillTokensPerNano, capacity, nanoClock);
+    }
+
+    // ==================================================================
+    // 空闲 key 清理
+    // ==================================================================
+
+    /**
+     * 清掉「已经补满」的桶 —— <b>补满的桶与一个全新桶完全等价</b>
+     * （{@code Bucket} 构造时就是满的：{@code tokens = capacity * 1000}），
+     * 所以删掉它与"留着它、等下一次访问时补到满"结果完全相同，
+     * <b>对限流行为零影响</b>。
+     * <p>
+     * 判据用"距上次补充已经过去足够补满一整桶的时间"，不引入新参数。
+     */
+    private void sweepFullBuckets(long now) {
+        if (buckets.size() <= CLEANUP_THRESHOLD) {
+            return;
+        }
+        long fillNs = (long) (capacity / refillTokensPerNano);
+        for (Map.Entry<String, Bucket> e : buckets.entrySet()) {
+            Bucket b = e.getValue();
+            if (b != null && now - b.lastRefillNs.get() >= fillNs) {
+                // 条件删除：别把这个 key 刚被别的线程重建的新桶删掉
+                buckets.remove(e.getKey(), b);
+            }
+        }
+    }
+
+    /** 扫一遍的门槛；扫完 map 缩回阈值以下，故不会反复扫。 */
+    static final int CLEANUP_THRESHOLD = 1024;
+
+    /** 当前被跟踪的 key 数（运维/测试观测用；生产无害）。 */
+    int trackedKeys() {
+        return buckets.size();
     }
 
     /** 单 key 的桶 */

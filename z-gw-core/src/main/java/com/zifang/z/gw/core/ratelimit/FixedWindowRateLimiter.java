@@ -2,6 +2,7 @@ package com.zifang.z.gw.core.ratelimit;
 
 import com.zifang.z.gw.api.RateLimiter;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -42,6 +43,7 @@ public class FixedWindowRateLimiter implements RateLimiter {
     @Override
     public Result tryAcquire(String key) {
         long nowSec = clockMs.getAsLong() / 1000L;
+        sweepIdleWindows(nowSec);
         Window w = windows.computeIfAbsent(key, k -> new Window(nowSec));
         synchronized (w) {
             if (w.windowSecond.get() != nowSec) {
@@ -54,6 +56,41 @@ public class FixedWindowRateLimiter implements RateLimiter {
             }
             return Result.allow(limit - c, limit);
         }
+    }
+
+    // ==================================================================
+    // 空闲 key 清理
+    // ==================================================================
+
+    /**
+     * 清掉「窗口已经过去」的条目 —— <b>这些条目不携带任何信息</b>：
+     * {@link Window} 只有一个 {@code windowSecond} 与一个计数，
+     * 而 {@link #tryAcquire} 每次进来都会在窗口对不上时把计数归零。
+     * 所以删掉一个过期条目与"留着它、等下一次访问时被归零"结果完全相同，
+     * <b>对限流行为零影响</b>，唯一变化是不再永久占内存。
+     */
+    private void sweepIdleWindows(long nowSec) {
+        if (windows.size() <= CLEANUP_THRESHOLD) {
+            return;
+        }
+        for (Map.Entry<String, Window> e : windows.entrySet()) {
+            Window w = e.getValue();
+            if (w != null && w.windowSecond.get() < nowSec) {
+                // 条件删除：万一这个 key 刚被别的线程重建过，别把新条目删掉
+                windows.remove(e.getKey(), w);
+            }
+        }
+    }
+
+    /**
+     * 扫一遍的门槛。取值只影响"多久扫一次"（扫完 map 就缩回阈值以下，
+     * 所以之后不会反复扫），不影响限流语义。
+     */
+    static final int CLEANUP_THRESHOLD = 1024;
+
+    /** 当前被跟踪的 key 数（运维/测试观测用；生产无害）。 */
+    int trackedKeys() {
+        return windows.size();
     }
 
     private static class Window {

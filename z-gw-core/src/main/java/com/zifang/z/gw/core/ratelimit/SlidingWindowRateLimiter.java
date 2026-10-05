@@ -2,6 +2,7 @@ package com.zifang.z.gw.core.ratelimit;
 
 import com.zifang.z.gw.api.RateLimiter;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 
@@ -46,8 +47,9 @@ public class SlidingWindowRateLimiter implements RateLimiter {
 
     @Override
     public Result tryAcquire(String key) {
-        WindowState st = states.computeIfAbsent(key, k -> new WindowState());
         long now = clockMs.getAsLong();
+        sweepIdleStates(now);
+        WindowState st = states.computeIfAbsent(key, k -> new WindowState());
         synchronized (st) {
             // 清理过期槽
             long boundary = now - 1000L;
@@ -84,6 +86,47 @@ public class SlidingWindowRateLimiter implements RateLimiter {
      * 是秒粒度，向上取整后与 1 秒无异，写更小的数反而是假精度。</p>
      */
     private static final long RETRY_AFTER_SECONDS = 1L;
+
+    // ==================================================================
+    // 空闲 key 清理
+    // ==================================================================
+
+    /**
+     * 清掉「10 个槽全部过期」的条目 —— <b>同样不携带任何信息</b>：
+     * {@link #tryAcquire} 进来第一件事就是按 {@code now - 1000L} 把过期槽清零，
+     * 所以删掉一个全空状态与"留着它、等下一次访问时被清零"结果完全相同，
+     * <b>对限流行为零影响</b>。判据用的就是这个边界，不是另发明的一套。
+     */
+    private void sweepIdleStates(long now) {
+        if (states.size() <= CLEANUP_THRESHOLD) {
+            return;
+        }
+        long boundary = now - 1000L;
+        for (Map.Entry<String, WindowState> e : states.entrySet()) {
+            WindowState st = e.getValue();
+            if (st != null && isFullyExpired(st, boundary)) {
+                // 条件删除：别把这个 key 刚被别的线程重建的新状态删掉
+                states.remove(e.getKey(), st);
+            }
+        }
+    }
+
+    private static boolean isFullyExpired(WindowState st, long boundary) {
+        for (Slot s : st.slots) {
+            if (s.timestamp >= boundary) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 扫一遍的门槛；扫完 map 缩回阈值以下，故不会反复扫。 */
+    static final int CLEANUP_THRESHOLD = 1024;
+
+    /** 当前被跟踪的 key 数（运维/测试观测用；生产无害）。 */
+    int trackedKeys() {
+        return states.size();
+    }
 
     private static class WindowState {
         final Slot[] slots = new Slot[SUB_WINDOWS];
