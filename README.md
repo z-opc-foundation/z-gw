@@ -37,7 +37,7 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
 | 能力 | 实现 | 说明 |
 |------|------|------|
 | 路由仓库 + 热更新 | `InMemoryRouteRepository` + `RouteMatcher` | admin API 增删改后监听器自动 refresh；`POST /gw/admin/routes/reload` 整体重载 |
-| URI scheme | `LbUriResolver` | 实测支持 `http(s)://host:port` 直连、`lb://service` 经 SPI 解析、`forward://` 预留 |
+| URI scheme | `LbUriResolver` | 支持 `http://host:port` 直连、`lb://service` 经 SPI 解析、`forward://` 预留。**`https://` 显式拒绝**（出站客户端无 TLS，此前是静默降级成明文，见下方「已知限制」） |
 | 谓词 | `PredicateFactoryRegistry` | 内置 6 个：Path / Method / Header / Host / Weight / Time，支持 Java `ServiceLoader` 扩展 |
 | 灰度分流 | `WeightPredicateFactory` | Weight 分组按权重（examples 演示 90/10） |
 | 负载均衡 | `Random` / `RoundRobin` / `Weighted` / `LeastConnections` / `IpHash` | `LoadBalancer` SPI，默认 RoundRobin |
@@ -207,14 +207,63 @@ zgw:
 
 ---
 
+## ⚠️ 已知限制与行为变更
+
+这一节记的是**代码当前真实做不到的事**，以及与旧版本不同的行为。
+
+### 1. `https://` 上游：显式拒绝，不再静默降级（行为变更）
+
+`BackendHttpClient` 的 pipeline 里**没有 `SslHandler`**，出站只支持明文 HTTP。
+在此之前，配了 `https://` 的路由会**静默降级成明文**——`LbUriResolver` 走静态分支时
+默认端口取 80，出站仍用 `HttpClientCodec`。结果是"以为配了 https 就安全了"，
+实际把 `Authorization` / `Cookie` 明文发到网络上。
+
+现在改为**启动即报错**（`IllegalStateException`），错误消息说明原因与两条出路：
+
+- 改用 `http://` 上游；
+- 或先为出站客户端补 TLS 支持。
+
+**升级影响**：配了 `https://` 上游的部署在升级后会启动失败。这是有意为之——
+继续静默降级等于继续泄露凭证。升级前请先全量检查路由配置里的 `uri:`。
+
+### 2. 入站读超时固定 60 秒，不跟随任何配置
+
+`GatewayServer` 的 `ReadTimeoutHandler(60, SECONDS)` 是硬编码的，**不读 `ServerConfig`
+任何配置项**。它与出站 `readTimeoutMs` 是两个互不相干的上限：后者管"网关等后端"，
+前者管"客户端多久不吐数据算断连"。要调入站超时目前只能改代码。
+
+其余"配置项存在但无人读取"的情况（`websocketEnabled`、JWT 鉴权、注册中心发现等）
+见上文 [如实边界](#如实边界原-readme-宣传过代码里实际没有的东西)。
+
+---
+
 ## 🧪 测试
 
 ```bash
 mvn test
 ```
 
-实测规模：`z-gw-core` 5 个测试类、25 个 `@Test`（RouteMatcher 6 / PredicateFactory 7 /
-CircuitBreaker 4 / RateLimiter 4 / LoadBalancer 4），无外部依赖即可全跑。
+实测规模：**95 个 `@Test`**（`z-gw-core` 92 + `z-gw-spring-boot-starter` 3），
+15 个测试类，无外部依赖即可全跑：
+
+| 测试类 | 数 | 覆盖 |
+|--------|----|------|
+| `SlidingWindowCircuitBreakerWindowTest` | 9 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、构造期 fail-fast |
+| `RateLimiterClockInjectionTest` | 11 | 两个限流器的时钟可注入、参数校验、429 带 `Retry-After` |
+| `GatewayHandlerErrorResponseTest` | 7 | 过滤器抛异常必须真的写出 HTTP 响应、同一请求不写两个响应 |
+| `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
+| `GatewayHandlerNotFoundJsonTest` | 8 | 404 响应体是合法 JSON，path / `X-Request-Id` 不能注入字段 |
+| `YamlRouteLoaderStrictnessTest` | 9 | 拼错的谓词 / 过滤器不再被静默丢弃 |
+| `LbUriResolverSchemeTest` | 7 | scheme 分支，含 `https://` 显式拒绝 |
+| `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
+| `RateLimiterTest` | 6 | 三个限流器基本语义 |
+| `RouteMatcherTest` | 6 | 路由匹配与热更新 |
+| `PredicateFactoryTest` | 7 | 6 个内置谓词 + SPI 扩展 |
+| `CircuitBreakerTest` | 4 | 熔断器状态机基本流转 |
+| `LoadBalancerTest` | 4 | 4 种负载均衡 |
+| `NettyProxyFilterTimeoutTest` | 3 | 后端等待上限跟随 `readTimeoutMs` |
+| `ZGatewayAutoConfigurationRefreshTest` | 3 | 重复 `ContextRefreshedEvent` 不会累积 listener |
+
 旧 README 的"214 单元 + 45 集成 + 8 SpringBoot + 36 回归"为模板遗留数字，非本仓实测。
 
 ---
