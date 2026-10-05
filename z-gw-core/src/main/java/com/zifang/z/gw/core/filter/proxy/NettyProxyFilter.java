@@ -100,30 +100,41 @@ public class NettyProxyFilter implements GatewayFilter {
             throw new GatewayException.BadGatewayException("No healthy backend instance for " + ctx.getMatchedRoute().getUri());
         }
 
-        // 取 netty ctx 写响应
-        ChannelHandlerContext nettyCtx = ctx.getAttribute("netty.ctx", ChannelHandlerContext.class);
-        FullHttpRequest originalReq = ctx.getAttribute("req.original", FullHttpRequest.class);
-        if (nettyCtx == null || originalReq == null) {
-            log.warn("[{}] missing netty ctx, skip proxy writeback", ctx.getRequestId());
-            return;
-        }
-
-        // 发送请求
-        CompletableFuture<FullHttpResponse> future = backendClient.execute(ctx, instance, upstreamPath, ctx.getQuery());
+        // 从选中的这一刻起，该实例上就多了一条在飞请求 —— 这是 LeastConnectionsLoadBalancer
+        // 唯一的输入。此前全仓没有任何地方维护 activeConnections：计数恒为 0，而 select 里的
+        // `conns < min` 在第一个实例就命中（0 < MAX_VALUE），后面全被 `0 < 0` 挡掉，
+        // 于是「最少连接」恒返回 instances.get(0)，配了它的服务等于把全部流量压在第一个实例上。
+        // 归还放在 finally：正常写回、后端失败、超时、InterruptedException 四条出口都必须还，
+        // 漏一条就等于永久减掉该实例的名额。
+        instance.incrementActiveConnections();
         try {
-            FullHttpResponse resp = future.get(serverConfig.getReadTimeoutMs(), TimeUnit.MILLISECONDS);
-            ctx.setAttribute("resp.status", String.valueOf(resp.status().code()));
-            // 抢下"响应尚未写出"的名额：万一后面的过滤器再抛异常，不要往这条连接上发第二个响应
-            GatewayHandler.claimResponse(ctx);
-            GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp);
-        } catch (java.util.concurrent.TimeoutException te) {
-            throw new GatewayException.GatewayTimeoutException("Backend timeout");
-        } catch (java.util.concurrent.ExecutionException ee) {
-            Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
-            throw new GatewayException.BadGatewayException("Backend failed: " + cause.getMessage(), cause);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new GatewayException.BadGatewayException("Interrupted", ie);
+            // 取 netty ctx 写响应
+            ChannelHandlerContext nettyCtx = ctx.getAttribute("netty.ctx", ChannelHandlerContext.class);
+            FullHttpRequest originalReq = ctx.getAttribute("req.original", FullHttpRequest.class);
+            if (nettyCtx == null || originalReq == null) {
+                log.warn("[{}] missing netty ctx, skip proxy writeback", ctx.getRequestId());
+                return;
+            }
+
+            // 发送请求
+            CompletableFuture<FullHttpResponse> future = backendClient.execute(ctx, instance, upstreamPath, ctx.getQuery());
+            try {
+                FullHttpResponse resp = future.get(serverConfig.getReadTimeoutMs(), TimeUnit.MILLISECONDS);
+                ctx.setAttribute("resp.status", String.valueOf(resp.status().code()));
+                // 抢下"响应尚未写出"的名额：万一后面的过滤器再抛异常，不要往这条连接上发第二个响应
+                GatewayHandler.claimResponse(ctx);
+                GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp);
+            } catch (java.util.concurrent.TimeoutException te) {
+                throw new GatewayException.GatewayTimeoutException("Backend timeout");
+            } catch (java.util.concurrent.ExecutionException ee) {
+                Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
+                throw new GatewayException.BadGatewayException("Backend failed: " + cause.getMessage(), cause);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new GatewayException.BadGatewayException("Interrupted", ie);
+            }
+        } finally {
+            instance.decrementActiveConnections();
         }
     }
 }

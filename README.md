@@ -235,6 +235,28 @@ zgw:
 其余"配置项存在但无人读取"的情况（`websocketEnabled`、JWT 鉴权、注册中心发现等）
 见上文 [如实边界](#如实边界原-readme-宣传过代码里实际没有的东西)。
 
+### 3. 最少连接：在飞计数改由代理过滤器维护（行为变更）
+
+`LeastConnectionsLoadBalancer` 此前**恒定返回实例列表的第一个**：`ServiceInstance` 上的
+`activeConnections` 只有 getter/setter，全仓没有任何生产代码调用过
+`incrementActiveConnections()`，所有实例计数恒为 0，而 `select` 里的 `conns < min`
+在第一个实例就命中、后续全被 `0 < 0` 挡掉。
+
+现在 `NettyProxyFilter` 在选实例后 `increment`、在转发结束的 `finally` 里 `decrement`
+（正常写回 / 后端失败 / 超时 / 线程中断四条出口都归还）。
+
+**升级影响**：配了 `leastConnections` 的服务流量分布会变——从"全打第一个实例"变成
+真正按在飞连接数分配。若此前靠这个"只打一个实例"的行为做了容量假设，需要重新评估。
+
+### 4. 加权轮询：实例数变化不再抛异常（行为变更）
+
+`WeightedLoadBalancer` 的 SWRR 状态 `currents` 数组在**首次调用**时按当时的实例数定长。
+服务发现新增实例（扩容、滚动发布）后数组越界，`ArrayIndexOutOfBoundsException` 从 `select`
+抛出、被 `NettyProxyFilter` 包成 `BadGatewayException`——**一次扩容会把整条 `lb://` 路由
+打成 502，直到网关重启才恢复**。
+
+现在每次选择前按当前实例数扩容（缩容方向保留旧值，SWRR 的 `currents` 本身有界，会自行拉回）。
+
 ---
 
 ## 🧪 测试
@@ -243,24 +265,29 @@ zgw:
 mvn test
 ```
 
-实测规模：**95 个 `@Test`**（`z-gw-core` 92 + `z-gw-spring-boot-starter` 3），
-15 个测试类，无外部依赖即可全跑：
+实测规模：**122 个 `@Test`**（`z-gw-core` 119 + `z-gw-spring-boot-starter` 3），
+20 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
-| `SlidingWindowCircuitBreakerWindowTest` | 9 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、构造期 fail-fast |
 | `RateLimiterClockInjectionTest` | 11 | 两个限流器的时钟可注入、参数校验、429 带 `Retry-After` |
-| `GatewayHandlerErrorResponseTest` | 7 | 过滤器抛异常必须真的写出 HTTP 响应、同一请求不写两个响应 |
-| `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
-| `GatewayHandlerNotFoundJsonTest` | 8 | 404 响应体是合法 JSON，path / `X-Request-Id` 不能注入字段 |
+| `SlidingWindowCircuitBreakerWindowTest` | 9 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、构造期 fail-fast |
 | `YamlRouteLoaderStrictnessTest` | 9 | 拼错的谓词 / 过滤器不再被静默丢弃 |
-| `LbUriResolverSchemeTest` | 7 | scheme 分支，含 `https://` 显式拒绝 |
-| `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
-| `RateLimiterTest` | 6 | 三个限流器基本语义 |
-| `RouteMatcherTest` | 6 | 路由匹配与热更新 |
+| `GatewayHandlerNotFoundJsonTest` | 8 | 404 响应体是合法 JSON，path / `X-Request-Id` 不能注入字段 |
+| `GatewayHandlerCorsTest` | 7 | 预检与实际响应都要带 `ACAO`（此前只有预检有，跨域全被浏览器拦掉） |
+| `GatewayHandlerErrorResponseTest` | 7 | 过滤器抛异常必须真的写出 HTTP 响应、同一请求不写两个响应 |
+| `RateLimiterKeyCardinalityTest` | 7 | 三个限流器的 keyed 状态表有界（持续轮换 key 不能撑爆堆） |
 | `PredicateFactoryTest` | 7 | 6 个内置谓词 + SPI 扩展 |
-| `CircuitBreakerTest` | 4 | 熔断器状态机基本流转 |
+| `LbUriResolverSchemeTest` | 7 | scheme 分支，含 `https://` 显式拒绝 |
+| `RouteMatcherTest` | 6 | 路由匹配与热更新 |
+| `RateLimiterTest` | 6 | 三个限流器基本语义 |
+| `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
+| `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
+| `LeastConnectionsInFlightTest` | 5 | 最少连接的输入真有人维护（转发中在计数、四条出口都归还） |
 | `LoadBalancerTest` | 4 | 4 种负载均衡 |
+| `WeightedLoadBalancerScaleTest` | 4 | SWRR 状态跟着实例数走（扩容不再把整条路由打成 502） |
+| `SlidingWindowCircuitBreakerHalfOpenLeakTest` | 4 | 半开期在飞名额无条件归还，后端恢复后熔断器能闭合 |
+| `CircuitBreakerTest` | 4 | 熔断器状态机基本流转 |
 | `NettyProxyFilterTimeoutTest` | 3 | 后端等待上限跟随 `readTimeoutMs` |
 | `ZGatewayAutoConfigurationRefreshTest` | 3 | 重复 `ContextRefreshedEvent` 不会累积 listener |
 

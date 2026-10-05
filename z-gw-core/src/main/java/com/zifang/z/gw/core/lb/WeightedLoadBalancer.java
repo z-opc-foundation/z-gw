@@ -31,6 +31,11 @@ public class WeightedLoadBalancer implements LoadBalancer {
 
         InstanceState state = states.computeIfAbsent(serviceId, k -> new InstanceState(instances.size()));
         synchronized (state) {
+            // 实例数只增不减会怎样：currents 在首次调用时按当时规模定长，服务发现新增实例
+            // （扩容、滚动发布）后 instances 变长，state.currents[i] 直接越界，异常从 select
+            // 抛出被 NettyProxyFilter 包成 BadGatewayException —— 一次扩容把整条 lb:// 路由打成
+            // 502，直到网关重启才恢复。缩容方向只是旧下标残留值，影响分配比例、不抛异常。
+            state.ensureCapacity(instances.size());
             int totalWeight = 0;
             int maxCurrent = Integer.MIN_VALUE;
             int maxIdx = -1;
@@ -52,10 +57,25 @@ public class WeightedLoadBalancer implements LoadBalancer {
     }
 
     private static class InstanceState {
-        final int[] currents;
+        int[] currents;
 
         InstanceState(int size) {
             this.currents = new int[size];
+        }
+
+        /**
+         * 实例数变大时同步扩容，保留已有计数。
+         *
+         * <p>只在 {@code select} 的 {@code synchronized (state)} 内调用 —— 换数组本身是写操作，
+         * 与外层读 {@code currents} 的循环必须互斥。缩容不回收：SWRR 的 currents 本身有界
+         * （约 [-totalWeight, maxWeight]），残留值在再扩容时会自行被后续轮次拉回，不值得为它
+         * 引入一次拷贝 + 下标重排。</p>
+         */
+        void ensureCapacity(int size) {
+            if (currents.length >= size) return;
+            int[] grown = new int[size];
+            System.arraycopy(currents, 0, grown, 0, currents.length);
+            currents = grown;
         }
     }
 }
