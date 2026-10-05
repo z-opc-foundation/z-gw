@@ -38,10 +38,13 @@ public class HystrixFilterFactory implements GatewayFilterFactory {
 
     @Override
     public GatewayFilter apply(Map<String, String> args) {
-        int errPct = parseInt(args, "errorThresholdPercentage", 50);
-        int volume = parseInt(args, "requestVolumeThreshold", 20);
-        long sleepMs = parseLong(args, "sleepWindowMs", 5000L);
-        String cbName = args.getOrDefault("name", "default");
+        // 简写 Hystrix=errorThresholdPercentage=50,... 收在 _genkey_0 里，
+        // 直接按 key 取会全部落空、静默用默认 50/20/5000
+        Map<String, String> a = ShorthandArgs.normalize(args);
+        int errPct = parseInt(a, "errorThresholdPercentage", 50);
+        int volume = parseInt(a, "requestVolumeThreshold", 20);
+        long sleepMs = parseLong(a, "sleepWindowMs", 5000L);
+        String cbName = a.getOrDefault("name", "default");
         return new HystrixFilter(new com.zifang.z.gw.core.circuitbreaker.SlidingWindowCircuitBreaker(
                 cbName, errPct, volume, sleepMs));
     }

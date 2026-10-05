@@ -306,6 +306,41 @@ yml 简写 `Weight=user_group,90` 经 `PredicateDefinition.of(name, singleArg)` 
 **升级影响**：此前配了 `AddResponseHeader` 却没看到头的部署，升级后这些头会真的
 出现在响应上。若某个头与后端同名，会以网关配置的值为准。
 
+### 7. 限流 / 熔断 / 重试的 yml 简写参数此前一律无效（行为变更）
+
+`RequestRateLimiter` / `Hystrix` / `Retry` 三个工厂按**语义 key** 取参数
+（`args.get("replenishRate")` 等），而 yml 简写
+`RequestRateLimiter=replenishRate=10,burstCapacity=20` 经
+`FilterDefinition.of(name, singleArg)` 收成 `{"_genkey_0": "replenishRate=10,burstCapacity=20"}`
+—— key 是定长占位符，配置项名和值都挤在 value 里。于是**每个参数都取不到、
+静默落回默认值**，日志里没有任何异常：
+
+| 配置 | 实际生效 |
+|------|----------|
+| `replenishRate=1,burstCapacity=2` | `10 / 20`（宽 5~10 倍） |
+| `Hystrix=requestVolumeThreshold=1,errorThresholdPercentage=1` | `20 / 50` |
+| `Retry=retries=5` | `3` |
+
+限流那条最要命：把限流配紧以保护后端，实际生效的却是宽 5~10 倍的默认值。
+三个工厂现在都先经 `ShorthandArgs.normalize` 把简写按 `k=v,k=v` 拆开再取值，
+map 写法不变。
+
+**升级影响**：配了限流/熔断/重试简写的部署在升级后参数会真的生效。
+升级前请确认那些数字是你想要的——尤其是限流，升级后流量会被真正拦住。
+
+### 8. 未修改但已知的契约缺口：`RewritePath` 的简写语法不可用
+
+`RewritePathFilterFactory` 要求 `args.size() >= 2`，而简写
+`RewritePath=/red(?<segment>.*), /${segment}` 只会产生 1 个 arg，必然抛
+`IllegalArgumentException`；该异常被 `FilterAssembler.buildFilter` 捕获后
+`log.error` + 返回 null，**过滤器被静默丢弃**，请求带着未改写的 path 打到后端。
+
+该类 Javadoc 第 15 行推荐的正是这个语法，但全工作区 grep 显示除 Javadoc/README 外
+**没有任何 yml 或测试真的用过它**。没有定为缺陷、也不擅自修，原因是拆分规则本身
+有歧义：正则里可以出现逗号（`/a{1,2}/b`），`regex,replacement` 按第一个逗号拆会切错、
+按最后一个拆则会在替换串含逗号时切错，无法从现有材料判定哪种是本意。
+需要先定规则（或者干脆规定含逗号的正则必须用 map 写法）再改。
+
 ---
 
 ## 🧪 测试
@@ -314,8 +349,8 @@ yml 简写 `Weight=user_group,90` 经 `PredicateDefinition.of(name, singleArg)` 
 mvn test
 ```
 
-实测规模：**145 个 `@Test`**（`z-gw-core` 142 + `z-gw-spring-boot-starter` 3），
-23 个测试类，无外部依赖即可全跑：
+实测规模：**153 个 `@Test`**（`z-gw-core` 150 + `z-gw-spring-boot-starter` 3），
+24 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
@@ -334,6 +369,7 @@ mvn test
 | `RateLimiterTest` | 6 | 三个限流器基本语义 |
 | `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
 | `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
+| `FilterFactoryShorthandArgTest` | 8 | 限流/熔断/重试三个工厂的 yml 简写参数真的生效（此前静默落回默认值） |
 | `AddResponseHeaderEndToEndTest` | 7 | `AddResponseHeader` 声明的头真的落到出站响应，并定义与后端/ACAO 兜底的优先级 |
 | `LeastConnectionsInFlightTest` | 5 | 最少连接的输入真有人维护（转发中在计数、四条出口都归还） |
 | `WeightedLoadBalancerScaleTest` | 4 | SWRR 状态跟着实例数走（扩容不再把整条路由打成 502） |

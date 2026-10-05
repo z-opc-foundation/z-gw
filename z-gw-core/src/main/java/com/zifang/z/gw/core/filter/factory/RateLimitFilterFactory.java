@@ -38,10 +38,13 @@ public class RateLimitFilterFactory implements GatewayFilterFactory {
 
     @Override
     public GatewayFilter apply(Map<String, String> args) {
-        int replenishRate = parseInt(args, "replenishRate", 10);
-        int burstCapacity = parseInt(args, "burstCapacity", 20);
-        String keyResolver = args.getOrDefault("keyResolver", "ip");
-        String algorithm = args.getOrDefault("algorithm", "tokenBucket");
+        // 简写 RequestRateLimiter=replenishRate=10,burstCapacity=20 收在 _genkey_0 里，
+        // 直接按 key 取会全部落空、静默用默认 10/20
+        Map<String, String> a = ShorthandArgs.normalize(args);
+        int replenishRate = parseInt(a, "replenishRate", 10);
+        int burstCapacity = parseInt(a, "burstCapacity", 20);
+        String keyResolver = a.getOrDefault("keyResolver", "ip");
+        String algorithm = a.getOrDefault("algorithm", "tokenBucket");
 
         RateLimiter limiter;
         switch (algorithm.toLowerCase()) {

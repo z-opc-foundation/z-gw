@@ -34,8 +34,11 @@ public class RetryFilterFactory implements GatewayFilterFactory {
 
     @Override
     public GatewayFilter apply(Map<String, String> args) {
-        int retries = parseInt(args, "retries", 3);
-        long backoffMs = parseLong(args, "backoffMs", 100L);
+        // 简写 Retry=retries=3,backoffMs=100 收在 _genkey_0 里，
+        // 直接按 key 取会全部落空、静默用默认 3/100
+        Map<String, String> a = ShorthandArgs.normalize(args);
+        int retries = parseInt(a, "retries", 3);
+        long backoffMs = parseLong(a, "backoffMs", 100L);
         return new RetryFilter(retries, backoffMs);
     }
 
