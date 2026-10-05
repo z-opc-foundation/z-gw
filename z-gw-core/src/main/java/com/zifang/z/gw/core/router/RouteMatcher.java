@@ -111,10 +111,31 @@ public class RouteMatcher {
                 if (handledGroups.contains(group)) continue;
                 handledGroups.add(group);
                 List<RouteDefinition> groupRoutes = groupedByWeight.getOrDefault(group, Collections.singletonList(route));
-                return selectByWeight(ctx, groupRoutes);
+                return selectByWeight(ctx, matchingMembers(ctx, groupRoutes, route));
             }
         }
         return null;
+    }
+
+    /**
+     * 从灰度组里挑出<b>本请求真正匹配</b>的成员。
+     *
+     * <p>配置并不约束同组路由的其余谓词相同，而 {@code groupedByWeight} 收的是
+     * 「所有带 Weight 谓词的路由」。整组拿去加权就意味着：组里有一条
+     * {@code Path=/b/**}，那 {@code /a} 的请求也会按权重比例被选到它 ——
+     * 权重越是修好了，这个洞越会被真正踩到（此前 weight 恒为 0、恒取组内第一条，
+     * 反而碰巧躲过了）。这里把不匹配的成员排除在分配之外；一条都不匹配时
+     * 退回本条——它刚刚已经通过 {@code matchesAllPredicates}。</p>
+     */
+    private List<RouteDefinition> matchingMembers(GatewayContext ctx, List<RouteDefinition> groupRoutes,
+                                                  RouteDefinition matched) {
+        List<RouteDefinition> result = new ArrayList<>(groupRoutes.size());
+        for (RouteDefinition r : groupRoutes) {
+            if (matchesAllPredicates(ctx, r)) {
+                result.add(r);
+            }
+        }
+        return result.isEmpty() ? Collections.singletonList(matched) : result;
     }
 
     private boolean hasWeightPredicate(RouteDefinition route) {

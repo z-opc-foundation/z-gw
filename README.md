@@ -257,6 +257,31 @@ zgw:
 
 现在每次选择前按当前实例数扩容（缩容方向保留旧值，SWRR 的 `currents` 本身有界，会自行拉回）。
 
+### 5. 灰度权重此前从未生效：金丝雀拿不到任何流量（行为变更）
+
+yml 简写 `Weight=user_group,90` 经 `PredicateDefinition.of(name, singleArg)` 收成
+`{"_genkey_0": "user_group,90"}` —— key 是定长占位符，两个值都在 value 里。
+`WeightPredicateFactory` 却把 key 当 group、拿整串 value 做 `parseInt`：
+
+- group 恒为 `_genkey_0`，所有灰度组塌成一组；
+- weight 遇 `NumberFormatException` 被吞成 0 → `selectByWeight` 的 `total <= 0`
+  → 恒取组内第一条 → **金丝雀 0%**。
+
+`YamlRouteLoader.defaultRoutes()` 自带的演示灰度（v1 90 / canary 10）就是这样一条
+拿不到流量的路由。现在两种写法都解析：简写取 value 逗号左右两边，map 写法照旧
+（key 即 group）。`HeaderPredicateFactory` 同病，`Header=X-Trace-Id,.+` 会去查
+`req.header._genkey_0` 从而永不命中，一并修好——同仓的
+`AddRequestHeaderFilterFactory` / `AddResponseHeaderFilterFactory` 早就按
+`_genkey_0` 约定解析了，这次是让谓词侧与过滤器侧对齐。
+
+同时收紧了权重选择的取值范围：配置不约束同组路由的其余谓词相同，而
+`groupedByWeight` 收的是「所有带 Weight 谓词的路由」。若整组拿去加权，组里有一条
+`Path=/b/**` 时，`/a` 的请求会按权重比例被送到 `/b` 去。现在只让真正匹配本请求的
+组成员参与分配。
+
+**升级影响**：配了灰度的部署在升级后会真的开始分流。升级前请确认同组路由的
+非 Weight 谓词一致（否则原先"看起来是 100%/0%"的隐性配置会突然真的按比例走）。
+
 ---
 
 ## 🧪 测试
@@ -265,28 +290,30 @@ zgw:
 mvn test
 ```
 
-实测规模：**122 个 `@Test`**（`z-gw-core` 119 + `z-gw-spring-boot-starter` 3），
-20 个测试类，无外部依赖即可全跑：
+实测规模：**138 个 `@Test`**（`z-gw-core` 135 + `z-gw-spring-boot-starter` 3），
+22 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
 | `RateLimiterClockInjectionTest` | 11 | 两个限流器的时钟可注入、参数校验、429 带 `Retry-After` |
-| `SlidingWindowCircuitBreakerWindowTest` | 9 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、构造期 fail-fast |
 | `YamlRouteLoaderStrictnessTest` | 9 | 拼错的谓词 / 过滤器不再被静默丢弃 |
+| `SlidingWindowCircuitBreakerWindowTest` | 9 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、构造期 fail-fast |
+| `RouteMatcherWeightTest` | 9 | 灰度权重真按比例分流，且不把流量发给不匹配的路由 |
 | `GatewayHandlerNotFoundJsonTest` | 8 | 404 响应体是合法 JSON，path / `X-Request-Id` 不能注入字段 |
 | `GatewayHandlerCorsTest` | 7 | 预检与实际响应都要带 `ACAO`（此前只有预检有，跨域全被浏览器拦掉） |
 | `GatewayHandlerErrorResponseTest` | 7 | 过滤器抛异常必须真的写出 HTTP 响应、同一请求不写两个响应 |
 | `RateLimiterKeyCardinalityTest` | 7 | 三个限流器的 keyed 状态表有界（持续轮换 key 不能撑爆堆） |
 | `PredicateFactoryTest` | 7 | 6 个内置谓词 + SPI 扩展 |
+| `PredicateShorthandArgTest` | 7 | 谓词的 yml 简写 `Header=X-Trace-Id,.+` / `Weight=group,90` 真的被解析 |
 | `LbUriResolverSchemeTest` | 7 | scheme 分支，含 `https://` 显式拒绝 |
 | `RouteMatcherTest` | 6 | 路由匹配与热更新 |
 | `RateLimiterTest` | 6 | 三个限流器基本语义 |
 | `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
 | `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
 | `LeastConnectionsInFlightTest` | 5 | 最少连接的输入真有人维护（转发中在计数、四条出口都归还） |
-| `LoadBalancerTest` | 4 | 4 种负载均衡 |
 | `WeightedLoadBalancerScaleTest` | 4 | SWRR 状态跟着实例数走（扩容不再把整条路由打成 502） |
 | `SlidingWindowCircuitBreakerHalfOpenLeakTest` | 4 | 半开期在飞名额无条件归还，后端恢复后熔断器能闭合 |
+| `LoadBalancerTest` | 4 | 4 种负载均衡 |
 | `CircuitBreakerTest` | 4 | 熔断器状态机基本流转 |
 | `NettyProxyFilterTimeoutTest` | 3 | 后端等待上限跟随 `readTimeoutMs` |
 | `ZGatewayAutoConfigurationRefreshTest` | 3 | 重复 `ContextRefreshedEvent` 不会累积 listener |
