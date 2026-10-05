@@ -1,7 +1,6 @@
 package com.zifang.z.gw.core.filter;
 
 import com.zifang.z.gw.api.GlobalFilter;
-import com.zifang.z.gw.core.filter.global.CorsGlobalFilter;
 import com.zifang.z.gw.core.filter.global.LoggingGlobalFilter;
 import com.zifang.z.gw.core.filter.global.MetricsGlobalFilter;
 import com.zifang.z.gw.core.filter.global.TracingGlobalFilter;
@@ -60,10 +59,16 @@ public class FilterChainBootstrap {
 
     public void installDefaults() {
         // === 内置全局过滤器 ===
-        // 顺序:Tracing -> Metrics -> CORS -> Logging -> Error -> Proxy
+        // 顺序:Tracing -> Metrics -> Logging -> Error -> Proxy
+        //
+        // 这里<b>没有</b> CORS 过滤器。CORS 由 GatewayHandler 在链外处理：预检在
+        // channelRead0 里被 writeCorsOptions 直接拦下返回，进不了链；实际响应的
+        // ACAO 由 writeJson / writeFullResponse / writeError 各自带上。此前链里
+        // 挂过一个 CorsGlobalFilter，它只设了一个全仓零读取的 attribute
+        // (cors.short.circuit)、不设任何响应头、也不短路，是个可证明的 no-op，
+        // 而 Javadoc 却写着「自动添加 CORS 响应头」—— 只会误导读代码的人。
         filterAssembler.addGlobalFilter(new TracingGlobalFilter());
         filterAssembler.addGlobalFilter(new MetricsGlobalFilter());
-        filterAssembler.addGlobalFilter(new CorsGlobalFilter());
         filterAssembler.addGlobalFilter(new LoggingGlobalFilter());
         filterAssembler.addGlobalFilter(new ErrorHandlingGlobalFilter());
 

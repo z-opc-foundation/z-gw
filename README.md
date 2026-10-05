@@ -75,6 +75,14 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
   注释自述"HTTP/2 后续升级"）。
 - **无仓内部署资产**：本仓没有 Dockerfile / docker-compose / k8s 清单 / Makefile / `deploy/` 目录，
   原 README 贴的 Dockerfile 与 k3s YAML 均非仓内文件。
+- **CORS 不在过滤器链里处理**：CORS 全部由 `GatewayHandler` 在链外完成——预检在
+  `channelRead0` 被 `writeCorsOptions` 直接拦下返回（进不了链），实际响应的 ACAO 由
+  `writeJson` / `writeFullResponse` / `writeError` 各自带上。链里曾挂过一个
+  `CorsGlobalFilter`，它是可证明的 no-op（只设了一个全仓零读取的 `cors.short.circuit`、
+  不设任何响应头、也不短路），Javadoc 却写着「自动添加 CORS 响应头」，已删除。
+  `GatewayHandlerCorsTest` 7 道用例覆盖 CORS 实际行为。
+- **`zgw.server.cors-*` 五个配置项无人读取**：`ServerConfig` 里 `corsEnabled`（默认 `false`）
+  等 5 个字段只有声明与 getter/setter，CORS 策略当前**写死为 `ACAO: *`**，不可配。
 
 ---
 
@@ -86,7 +94,7 @@ z-gw/
 ├── z-gw-api/                      # SPI 与模型（19 个类）：RouteDefinition / GatewayFilter(+Chain/Factory/Global)
 │                                  #   / PredicateFactory / RateLimiter / CircuitBreaker / LoadBalancer
 │                                  #   / ServiceDiscovery+ServiceInstance / GatewayContext；依赖 z-util-core、z-util-parser-json
-├── z-gw-core/                     # Netty 4 手写内核（46 个类 + 5 个测试类）：
+├── z-gw-core/                     # Netty 4 手写内核（46 个类 + 24 个测试类）：
 │   ├── server/                    #   GatewayServer（Nio/Epoll bootstrap）、GatewayHandler（FullHttpRequest 入口）
 │   ├── router/                    #   RouteMatcher、InMemoryRouteRepository、FilterAssembler
 │   ├── predicate/                 #   Path/Method/Header/Host/Weight/Time + 注册表
@@ -349,8 +357,8 @@ map 写法不变。
 mvn test
 ```
 
-实测规模：**153 个 `@Test`**（`z-gw-core` 150 + `z-gw-spring-boot-starter` 3），
-24 个测试类，无外部依赖即可全跑：
+实测规模：**156 个 `@Test`**（`z-gw-core` 153 + `z-gw-spring-boot-starter` 3），
+25 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
@@ -369,6 +377,7 @@ mvn test
 | `RateLimiterTest` | 6 | 三个限流器基本语义 |
 | `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
 | `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
+| `FilterChainBootstrapDefaultsTest` | 3 | 默认全局过滤器链的构成与 order 排序；CORS 不在链里（由 `GatewayHandler` 处理） |
 | `FilterFactoryShorthandArgTest` | 8 | 限流/熔断/重试三个工厂的 yml 简写参数真的生效（此前静默落回默认值） |
 | `AddResponseHeaderEndToEndTest` | 7 | `AddResponseHeader` 声明的头真的落到出站响应，并定义与后端/ACAO 兜底的优先级 |
 | `LeastConnectionsInFlightTest` | 5 | 最少连接的输入真有人维护（转发中在计数、四条出口都归还） |
