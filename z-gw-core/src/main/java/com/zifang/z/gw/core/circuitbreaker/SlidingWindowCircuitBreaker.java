@@ -80,6 +80,10 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
                 if (s.state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
                     s.halfOpenSuccess.set(0);
                     s.halfOpenFailure.set(0);
+                    // ⚠ 半开期开始新的一个周期：在飞计数必须归零。
+                    // 它是从"上一次半开遗留下来"的那个数——若不归零，半开放行的上限
+                    // （halfOpenInFlight <= 5）会被上一轮的残留吃掉越来越少。
+                    s.halfOpenInFlight.set(0);
                     return true;
                 }
                 return true;
@@ -90,16 +94,35 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
         return s.halfOpenInFlight.incrementAndGet() <= 5;
     }
 
+    /**
+     * 归还一个在飞名额，<b>钳到 0 为止</b>。
+     * <p>
+     * 必须在 recordSuccess / recordFailure 里<b>无条件</b>调用。此前它写在
+     * "仅当 current == HALF_OPEN" 的分支里，于是：请求在半开被放行 →
+     * 同期另一个请求失败把状态打回 OPEN → 这个请求此刻才回来，
+     * {@code current} 已是 OPEN ⇒ <b>名额不归还</b>。
+     * 每经历一次这样的翻转就漏 1 个，漏到 5 个之后
+     * {@code allowRequest} 的半开判据恒为 false，再也放不进任何请求；
+     * 放不进去就没人调 recordSuccess，{@code halfOpenSuccess} 永远到不了 3
+     * ⇒ <b>熔断器再也闭不上</b>，后端早已恢复而流量被永远拒之门外。
+     * <p>
+     * 钳位是因为 CLOSED 状态下进来的请求并没有占用过名额。
+     */
+    private static void releaseInFlight(BreakerState s) {
+        s.halfOpenInFlight.updateAndGet(v -> v > 0 ? v - 1 : 0);
+    }
+
     @Override
     public void recordSuccess(String key, long durationMs) {
         BreakerState s = states.computeIfAbsent(key, k -> new BreakerState(windowSize));
+        releaseInFlight(s);
         State current = s.state.get();
         if (current == State.HALF_OPEN) {
             int ok = s.halfOpenSuccess.incrementAndGet();
-            s.halfOpenInFlight.decrementAndGet();
             if (ok >= 3) {
                 s.state.set(State.CLOSED);
                 resetWindow(s);
+                s.halfOpenInFlight.set(0);
             }
             return;
         }
@@ -109,10 +132,10 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
     @Override
     public void recordFailure(String key, long durationMs, Throwable cause) {
         BreakerState s = states.computeIfAbsent(key, k -> new BreakerState(windowSize));
+        releaseInFlight(s);
         State current = s.state.get();
         if (current == State.HALF_OPEN) {
             s.halfOpenFailure.incrementAndGet();
-            s.halfOpenInFlight.decrementAndGet();
             s.state.set(State.OPEN);
             s.openedAtMs.set(System.currentTimeMillis());
             return;
