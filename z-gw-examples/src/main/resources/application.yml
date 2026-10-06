@@ -38,6 +38,15 @@ zgw:
     writeTimeoutMs: 30000
     maxPoolSize: 500
 
+    # 可信代理跳数 —— clientIp 的来源
+    #   0（默认）= 不信任任何代理，clientIp 只取 TCP 远端地址，
+    #               完全不看 X-Forwarded-For / X-Real-IP。
+    #   N > 0     = 前面挂了 N 层自有代理，从 XFF 右往左数第 N 段当客户端 IP。
+    # 注意：XFF 的段数 = 代理层数（最外层那层是 TCP remote，不写进 XFF）。
+    # 把它设成 1 就等于声明"只有内网代理能连到我"——端口对公网开放还开着它，
+    # 任何客户端都能自己填 X-Forwarded-For 绕过 IP 限流。前提由网络层保证。
+    trustedProxyHops: 0
+
   security:
     enabled: true
     jwtSecret: z-gw-examples-secret-please-change

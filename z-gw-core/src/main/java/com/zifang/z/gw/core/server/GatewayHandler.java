@@ -21,10 +21,14 @@ import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import io.netty.util.CharsetUtil;
+import io.netty.util.NetUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -32,6 +36,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 网关请求处理器 — Netty {@code SimpleChannelInboundHandler<FullHttpRequest>} 实现。
@@ -209,20 +214,8 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         ctx.setQuery(dec.rawQuery());
 
         // 客户端 IP
-        String xff = request.headers().get("X-Forwarded-For");
-        String xri = request.headers().get("X-Real-IP");
-        if (xff != null && !xff.isEmpty()) {
-            ctx.setClientIp(xff.split(",")[0].trim());
-        } else if (xri != null && !xri.isEmpty()) {
-            ctx.setClientIp(xri);
-        } else {
-            String remote = nettyCtx.channel().remoteAddress() != null
-                    ? nettyCtx.channel().remoteAddress().toString()
-                    : "";
-            if (remote.startsWith("/")) remote = remote.substring(1);
-            int colon = remote.indexOf(':');
-            ctx.setClientIp(colon > 0 ? remote.substring(0, colon) : remote);
-        }
+        ctx.setClientIp(resolveClientIp(request, serverConfig.getTrustedProxyHops(),
+                nettyCtx.channel() == null ? null : nettyCtx.channel().remoteAddress()));
 
         // headers 拷贝到 attribute
         Map<String, String> hdrs = new HashMap<>();
@@ -247,6 +240,102 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
 
         return ctx;
     }
+
+    // === 客户端 IP ===
+
+    /**
+     * 解析客户端 IP。
+     *
+     * <p><b>原来这里是 {@code xff.split(",")[0]}</b> —— {@code X-Forwarded-For} 的<b>最左</b>段，
+     * 而且是无条件采信、没有任何开关能关。那一段是整条链路上<b>最没有约束力</b>的一段：
+     * 任何能连到网关的客户端自己填一个 {@code X-Forwarded-For: 1.2.3.4}，
+     * {@code clientIp} 就是 1.2.3.4。而 {@code clientIp} 在本仓有四个出口 ——
+     * 限流键（{@code RateLimitFilterFactory}）、IP hash 负载均衡（{@code IpHashLoadBalancer}）、
+     * 原样写进转发给后端的 {@code X-Forwarded-For}（{@code BackendHttpClient}）、访问日志。
+     * 也就是"客户端自选限流键 + 把任意字符串注入内网请求头 + 把所有流量 hash 到同一个后端"。</p>
+     *
+     * <p>现在：默认 {@code trustedProxyHops = 0}，<b>不采信任何请求头</b>，只用 TCP 远端地址。
+     * 网关前面确实挂了 N 层自有代理时才设成 N，那时从 XFF <b>右往左</b>数第 N 段 ——
+     * 每一跳代理都把自己看到的来源 append 到链尾，所以越靠右越接近网关、越可信。</p>
+     *
+     * <p>任何"取不到就回落"的分支都回落到 TCP 远端地址：那是唯一由内核给出、客户端改不了的值。</p>
+     *
+     * <p>{@code static} + 包可见是为了能被直接钉住（不造 {@code ChannelHandlerContext}、不反射）；
+     * 逻辑本身不依赖 handler 实例。</p>
+     */
+    static String resolveClientIp(FullHttpRequest request, int trustedProxyHops, SocketAddress remote) {
+        String remoteAddr = remoteAddressOf(remote);
+        int hops = trustedProxyHops;
+        if (hops <= 0) {
+            return remoteAddr;
+        }
+        String xff = request.headers().get("X-Forwarded-For");
+        if (xff != null && !xff.isEmpty()) {
+            String[] parts = xff.split(",");
+            if (parts.length < hops) {
+                // 链比配置的短：有某一跳没登记，或者有人在直连网关。按不可信处理。
+                if (WARNED_SHORT_XFF.compareAndSet(false, true)) {
+                    log.warn("X-Forwarded-For 只有 {} 段，少于配置的可信代理跳数 {}，已回落到 TCP 远端地址。"
+                                    + "（有代理没登记就把 zgw.server.trusted-proxy-hops 调小；"
+                                    + "本进程只提示这一次）",
+                            parts.length, hops);
+                }
+                return remoteAddr;
+            }
+            String candidate = parts[parts.length - hops].trim();
+            // 必须是像样的 IP 字面量才认：clientIp 会进日志、限流键和转发给后端的头，
+            // 一段任意字符串进来就是往这些地方塞不受控内容。
+            if (NetUtil.isValidIpV4Address(candidate) || NetUtil.isValidIpV6Address(candidate)) {
+                return candidate;
+            }
+            if (WARNED_BAD_XFF.compareAndSet(false, true)) {
+                log.warn("X-Forwarded-For 从右数第 {} 段不是合法 IP（长度 {}），已回落到 TCP 远端地址。"
+                        + "（本进程只提示这一次）", hops, candidate.length());
+            }
+            return remoteAddr;
+        }
+        if (hops == 1) {
+            // X-Real-IP 只能代表"最靠近网关的那一跳看到的来源"，也就是第 1 跳。
+            // hops > 1 时它没有那么多信息，拿它当第 N 跳会把内网代理的地址当成客户端 IP，
+            // 所以那种情况下直接回落，不猜。
+            String xri = request.headers().get("X-Real-IP");
+            if (xri != null) {
+                String trimmed = xri.trim();
+                if (NetUtil.isValidIpV4Address(trimmed) || NetUtil.isValidIpV6Address(trimmed)) {
+                    return trimmed;
+                }
+                if (WARNED_BAD_XRI.compareAndSet(false, true)) {
+                    log.warn("X-Real-IP 不是合法 IP（长度 {}），已回落到 TCP 远端地址。（本进程只提示这一次）",
+                            trimmed.length());
+                }
+            }
+        }
+        return remoteAddr;
+    }
+
+    /**
+     * TCP 远端地址。
+     *
+     * <p>原来是 {@code remoteAddress().toString()} 再"去掉开头的 /、截断到第一个冒号"，
+     * 对 IPv6 会算出 {@code "/[::1]:9090"} → {@code "["} —— 也就是说 <b>IPv6 客户端的
+     * clientIp 是个单字符的 {@code "["}</b>，限流按它分组时所有 IPv6 客户端挤成一组。
+     * 走 {@link InetSocketAddress#getHostAddress()} 拿字面量，IPv4/IPv6 都对。</p>
+     */
+    private static String remoteAddressOf(SocketAddress addr) {
+        if (addr instanceof InetSocketAddress) {
+            InetSocketAddress inet = (InetSocketAddress) addr;
+            InetAddress resolved = inet.getAddress();
+            // 未解析的地址 getAddress() 为 null，这时 getHostString() 至少还是主机名而非 "["
+            return resolved != null ? resolved.getHostAddress() : inet.getHostString();
+        }
+        return addr == null ? "" : addr.toString();
+    }
+
+    // 配错一次提示一次就够：这里是网关，任何人都能发请求，每请求一条 warn 就是在往磁盘里灌水。
+    // 配置是启动时读的，改配置本来就得重启，所以不会漏报。
+    private static final AtomicBoolean WARNED_SHORT_XFF = new AtomicBoolean();
+    private static final AtomicBoolean WARNED_BAD_XFF = new AtomicBoolean();
+    private static final AtomicBoolean WARNED_BAD_XRI = new AtomicBoolean();
 
     private boolean isHealthPath(String path) {
         return "/health".equals(path) || "/healthz".equals(path) || "/".equals(path);

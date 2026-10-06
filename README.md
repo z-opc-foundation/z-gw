@@ -48,6 +48,7 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
 | 能力 | 实现 | 说明 |
 |------|------|------|
 | 限流 | `RateLimitFilterFactory`（`RequestRateLimiter`） | 算法实测三种：`tokenBucket` / `slidingWindow` / `fixedWindow`；`keyResolver: ip` 或 `header:<名称>` |
+| 客户端 IP | `GatewayHandler.resolveClientIp` + `zgw.server.trustedProxyHops` | **默认 0 = 不采信任何请求头**，`clientIp` 只取 TCP 远端地址。设成 N（前面有 N 层自有代理）才从 `X-Forwarded-For` 右往左数第 N 段 |
 | 熔断 | `HystrixFilterFactory` + `SlidingWindowCircuitBreaker` | errorThresholdPercentage / requestVolumeThreshold / sleepWindowMs 三参 |
 | 重试 | `RetryFilterFactory` | retries + backoffMs |
 | 改写 | `StripPrefix` / `PrefixPath` / `RewritePath` / `AddRequestHeader` / `AddResponseHeader` | 均为过滤器工厂 |
@@ -349,6 +350,59 @@ map 写法不变。
 按最后一个拆则会在替换串含逗号时切错，无法从现有材料判定哪种是本意。
 需要先定规则（或者干脆规定含逗号的正则必须用 map 写法）再改。
 
+### 9. `clientIp` 此前由客户端自选：IP 限流形同虚设（行为变更）
+
+`GatewayHandler.buildContext` 原来无条件采信 `X-Forwarded-For` 的**最左**段：
+
+```java
+ctx.setClientIp(xff.split(",")[0].trim());
+```
+
+最左段是整条链路上**最没有约束力**的一段：任何能连到网关的客户端自己填一个
+`X-Forwarded-For: 6.6.6.6` 就能拿到这个值，而当时**没有任何配置能关掉这个行为**。
+`clientIp` 在本仓有四个出口，等于同时中四枪：
+
+| 出口 | 后果 |
+|---|---|
+| `RateLimitFilterFactory` 的默认限流键 | **IP 限流形同虚设**，换个头就能绕 |
+| `IpHashLoadBalancer` 的 hash 键 | 所有伪造同一 IP 的流量挤到同一个后端 |
+| `BackendHttpClient` 原样写进转发给后端的 `X-Forwarded-For` | **把不受控字符串注入内网请求头** |
+| `LoggingGlobalFilter` | 访问日志里可以写任意内容 |
+
+现在加 `zgw.server.trustedProxyHops`：
+
+- **0（默认）= 不采信任何请求头**，`clientIp` 只取 TCP 远端地址（由内核给出，客户端改不了）
+- **N > 0** = 前面挂了 N 层自有代理，从 XFF **右往左数第 N 段**
+
+`N 怎么算`（配错的人基本都错在这里）：按 nginx `proxy_add_x_forwarded_for` 的默认行为，
+**XFF 的段数 = 代理层数，不是层数 + 1** —— 最外层那层代理是 TCP remote，只提供连接来源，
+不会把自己写进 XFF。设 `C=8.8.8.8 → P1=10.0.0.1 → P2=10.0.0.2 → 网关`：
+
+```
+P1 转发时发：XFF: 8.8.8.8
+P2 转发时发：XFF: 8.8.8.8, 10.0.0.1        ← P2 自己不在里面
+网关侧 remote = 10.0.0.2，trustedProxyHops = 2，取 parts[len - 2] = 8.8.8.8
+```
+
+客户端在 P1 之前伪造的段只会加在**最左边**，从右数第 N 段碰不到它。
+
+**前提由网络层保证**：`trustedProxyHops > 0` 声明的是"只有内网代理能连到我"。
+9090 对公网开放还开着它，等于没设——真的有人绕过代理直连并自己填 XFF，这个计数会失真。
+代码里没法替你兜住这一点。
+
+顺带修掉一个 IPv6 bug：原来取远端地址是 `toString()` 后"截断到第一个冒号"，
+`/[::1]:9090` 会算出**单字符的 `[`**——IPv6 客户端的 `clientIp` 全是同一个值，
+限流分组时全挤成一组。现在走 `InetAddress.getHostAddress()`。
+
+其他取不到就回落的分支（XFF 段数少于配置跳数、目标段不是合法 IP 字面量、没有任何头）
+一律回落到 TCP 远端地址。`X-Real-IP` 只在 `hops == 1` 时才考虑，因为它只能代表
+"最靠近网关那一跳看到的来源"，拿它当第 N 跳会把内网代理的地址当成客户端 IP。
+
+**升级影响**：端口直接对公网开放、且之前靠 `X-Forwarded-For` 拿真实客户端 IP 的部署，
+升级后 `clientIp` 会变成客户端的 TCP 源地址 —— 这个通常本来就是想要的；
+但如果**前面确实有代理**（Nginx / ALB / Ingress），必须把 `trustedProxyHops` 设成真实层数，
+否则 `clientIp` 会全变成代理的 IP，表现为限流按代理分组、IP hash 把流量打到固定后端。
+
 ---
 
 ## 🧪 测试
@@ -357,11 +411,12 @@ map 写法不变。
 mvn test
 ```
 
-实测规模：**156 个 `@Test`**（`z-gw-core` 153 + `z-gw-spring-boot-starter` 3），
-25 个测试类，无外部依赖即可全跑：
+实测规模：**169 个 `@Test`**（`z-gw-core` 166 + `z-gw-spring-boot-starter` 3），
+26 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
+| `GatewayClientIpResolutionTest` | 13 | `clientIp` 不能由客户端自选：默认可信度为 0、XFF 从右往左数（1/2/3 跳）、伪造的左侧段被无视、段数不足/非 IP 字面量都回落到 TCP 远端地址、`hops>1` 不拿 `X-Real-IP` 顶替、IPv6 远端取到的是 IP 本身、端到端进 `GatewayContext` 的也不是自填的那个 |
 | `RateLimiterClockInjectionTest` | 11 | 两个限流器的时钟可注入、参数校验、429 带 `Retry-After` |
 | `YamlRouteLoaderStrictnessTest` | 9 | 拼错的谓词 / 过滤器不再被静默丢弃 |
 | `SlidingWindowCircuitBreakerWindowTest` | 9 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、构造期 fail-fast |

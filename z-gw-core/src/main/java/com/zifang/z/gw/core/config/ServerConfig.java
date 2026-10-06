@@ -30,12 +30,42 @@ public class ServerConfig {
     /** WebSocket 支持 */
     private boolean websocketEnabled = true;
 
+    /**
+     * 可信代理跳数：<b>0 = 不信任任何代理</b>，{@code clientIp} 只取 TCP 远端地址，
+     * 完全不看 {@code X-Forwarded-For} / {@code X-Real-IP}。
+     *
+     * <p>网关前面真的挂了 N 层自有代理时才设成 N。设成 N 时，{@code clientIp} 取
+     * {@code X-Forwarded-For} <b>从右往左数第 N 段</b>：每一跳代理都把自己看到的来源
+     * append 到链尾，所以越靠右越接近网关、越可信；从左往右数最左边那段是整条链路上
+     * 最没有约束力的一段，任何能连到网关的客户端自己填一个头就能改掉它。</p>
+     *
+     * <p><b>N 怎么算</b>（配错的人基本都错在这里）：按 nginx 那个
+     * {@code proxy_add_x_forwarded_for} 的默认行为，<b>XFF 的段数 = 代理层数</b>，
+     * 不是层数 +1 —— 最外层那层代理是 TCP remote，它只提供"连接来源"，
+     * 不会把自己写进 XFF。设 C=8.8.8.8 → P1=10.0.0.1 → P2=10.0.0.2 → 网关：</p>
+     * <pre>
+     * P1 转发时发：XFF: 8.8.8.8
+     * P2 转发时发：XFF: 8.8.8.8, 10.0.0.1        ← P2 自己不在里面
+     * 网关侧 remote = 10.0.0.2，trustedProxyHops = 2，取 parts[len - 2] = 8.8.8.8
+     * </pre>
+     * <p>客户端在 P1 之前伪造的段只会加在<b>最左边</b>，从右数第 N 段碰不到它 ——
+     * 前提是"客户端伪造的段数刚好被可信层数吃掉"。真的有人直连网关（绕过代理）并自己填 XFF，
+     * 这个计数会失真，所以下面那条前提不是可选项。</p>
+     *
+     * <p><b>这个值大于 0 声明的是"只有内网代理能连到我"，前提由网络层保证。</b>
+     * 端口对公网开放还开着它，等于没设。代码里没法替你兜住这一点。</p>
+     */
+    private int trustedProxyHops = 0;
+
     /** CORS */
     private boolean corsEnabled = false;
     private String corsAllowedOrigins = "*";
     private String corsAllowedMethods = "GET,POST,PUT,DELETE,OPTIONS,PATCH";
     private String corsAllowedHeaders = "*";
     private long corsMaxAge = 3600;
+
+    public int getTrustedProxyHops() { return trustedProxyHops; }
+    public void setTrustedProxyHops(int trustedProxyHops) { this.trustedProxyHops = trustedProxyHops; }
 
     public int getPort() { return port; }
     public void setPort(int port) { this.port = port; }
