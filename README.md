@@ -435,6 +435,46 @@ P2 转发时发：XFF: 8.8.8.8, 10.0.0.1        ← P2 自己不在里面
 但如果**前面确实有代理**（Nginx / ALB / Ingress），必须把 `trustedProxyHops` 设成真实层数，
 否则 `clientIp` 会全变成代理的 IP，表现为限流按代理分组、IP hash 把流量打到固定后端。
 
+### 11. 熔断器的片边界此前跟着墙钟整除点走（行为变更）
+
+**改前**：`slotTs = System.currentTimeMillis() / windowDurationMs`。片的边界由**全局墙钟**决定，
+与这个 key 什么时候第一次有流量毫无关系。
+
+**为什么这是缺陷**：同一串请求，只要它跨过了某个整除点（片时长的整数倍），窗口就会整体翻片，
+**同片里的老样本被一起清掉**。方向正好是反的——**样本越少越容易被熔断**：
+
+```
+片时长 1000ms。t=100900 记 10 成功 + 5 失败（15 次、失败率 33%）
+推进 300ms 到 t=101200（跨过 100000 这个整除点）再记 5 次失败
+→ 那 10 次成功被丢掉，剩下 5 次失败单独算成 100% ⇒ 熔断
+→ 真实流量越稀疏，熔断器越容易被一串零星失败打断
+```
+
+而且它是**概率性**的：结果取决于"这批请求碰巧落在周期的哪个位置"，
+同一份配置、同一种流量形态，时好时坏。实测里 `longWindowKeepsFailuresAlive`
+（400ms 的 `Thread.sleep`）复跑 3 次为 1 红 2 绿——红的那次就是 sleep 恰好跨过了 5000ms 周期边界。
+
+**改后**：片起点**锚在本 key 的首次进入**（`slotBaseMs` + 单调递增的 `slotIdx`），
+时间到了**一次推进到位**（长时间空闲后的第一笔落在当下的片里，不会让被跳过的中间片带着陈旧计数参与统计）。
+另外新增可注入时钟（`LongSupplier`，与两个限流器同一形状），于是这 14 条判据**一条 `Thread.sleep` 都没有**，
+同一组数据在任何时刻跑都是同一个答案。
+
+**保留原语义**：`windowSize` / `windowDurationMs` 的含义不变，窗口仍然是"最近 N 片"，
+不是"从上次恢复起累计"。`resetWindow` 只清桶、**不动时间基线**——
+否则半开恢复那一刻等于给这个 key 重开一次窗口，老片与新片会接上。
+
+**顺带修掉的既有缺陷**：失败率阈值判定此前是 `pct >= errorThresholdPercentage`（正确），
+但没有任何一条判据让失败率**恰好等于**阈值，配置口径（"失败率阈值(0-100)"，达到即越线）
+实际无人验证。现在补上。
+
+**升级影响**：`windowSize=1` + `windowDurationMs` 很大（窗口长于熔断周期的典型配置）时行为变化最明显——
+改前老失败可能因跨片被清零，改后只要还在 N 片内就一定计入，因此熔断会比以前**更灵敏**一点。
+这是修正方向：宁可对持续失败早点熔断，也不要对稀疏流量误熔断。
+
+**没有改的**：窗口上界 `slotTs - windowSize` 与 `slotTs - (windowSize - 1)` 在环形桶下**不可观测**
+（多出来的那一片与当前片必然是同一个桶，`floorMod(ts - windowSize, windowSize) == floorMod(ts, windowSize)`，
+它的 `slotTs` 早已被改写成当前片），所以两种写法行为完全一致，保留可读性更好的那个。
+
 ---
 
 ## 🧪 测试
@@ -443,7 +483,7 @@ P2 转发时发：XFF: 8.8.8.8, 10.0.0.1        ← P2 自己不在里面
 mvn test
 ```
 
-实测规模：**180 个 `@Test`**（`z-gw-core` 177 + `z-gw-spring-boot-starter` 3），
+实测规模：**185 个 `@Test`**（`z-gw-core` 182 + `z-gw-spring-boot-starter` 3），
 26 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
@@ -452,10 +492,9 @@ mvn test
 | `GatewayClientIpResolutionTest` | 13 | `clientIp` 不能由客户端自选：默认可信度为 0、XFF 从右往左数（1/2/3 跳）、伪造的左侧段被无视、段数不足/非 IP 字面量都回落到 TCP 远端地址、`hops>1` 不拿 `X-Real-IP` 顶替、IPv6 远端取到的是 IP 本身、端到端进 `GatewayContext` 的也不是自填的那个 |
 | `RateLimiterClockInjectionTest` | 11 | 两个限流器的时钟可注入、参数校验、429 带 `Retry-After` |
 | `YamlRouteLoaderStrictnessTest` | 9 | 拼错的谓词 / 过滤器不再被静默丢弃 |
-| `SlidingWindowCircuitBreakerWindowTest` | 9 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、构造期 fail-fast |
+| `SlidingWindowCircuitBreakerWindowTest` | 14 | 滑动窗口真的会滑（老失败滑出后不再压失败率）、**片边界锚在本 key 首次进入而非墙钟整除点**（零 `Thread.sleep`，同一组数据任何时刻跑都是同一答案）、失败率恰好等于阈值时越线、构造期 fail-fast |
 | `RouteMatcherWeightTest` | 9 | 灰度权重真按比例分流，且不把流量发给不匹配的路由 |
-| `GatewayHandlerNotFoundJsonTest` | 8 | 404 响应体是合法 JSON，path / `X-Request-Id` 不能注入字段 |
-| `GatewayHandlerCorsTest` | 7 | 预检与实际响应都要带 `ACAO`（此前只有预检有，跨域全被浏览器拦掉） |
+| `GatewayHandlerNotFoundJsonTest` | 9 | 404 响应体是合法 JSON，path / `X-Request-Id` 不能注入字段 |
 | `GatewayHandlerErrorResponseTest` | 7 | 过滤器抛异常必须真的写出 HTTP 响应、同一请求不写两个响应 |
 | `RateLimiterKeyCardinalityTest` | 7 | 三个限流器的 keyed 状态表有界（持续轮换 key 不能撑爆堆） |
 | `PredicateFactoryTest` | 7 | 6 个内置谓词 + SPI 扩展 |
@@ -467,7 +506,7 @@ mvn test
 | `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
 | `FilterChainBootstrapDefaultsTest` | 3 | 默认全局过滤器链的构成与 order 排序；CORS 不在链里（由 `GatewayHandler` 处理） |
 | `FilterFactoryShorthandArgTest` | 8 | 限流/熔断/重试三个工厂的 yml 简写参数真的生效（此前静默落回默认值） |
-| `AddResponseHeaderEndToEndTest` | 7 | `AddResponseHeader` 声明的头真的落到出站响应，并定义与后端/ACAO 兜底的优先级 |
+| `AddResponseHeaderEndToEndTest` | 8 | `AddResponseHeader` 声明的头真的落到出站响应，并定义与后端/ACAO 兜底的优先级 |
 | `LeastConnectionsInFlightTest` | 5 | 最少连接的输入真有人维护（转发中在计数、四条出口都归还） |
 | `WeightedLoadBalancerScaleTest` | 4 | SWRR 状态跟着实例数走（扩容不再把整条路由打成 502） |
 | `SlidingWindowCircuitBreakerHalfOpenLeakTest` | 4 | 半开期在飞名额无条件归还，后端恢复后熔断器能闭合 |
