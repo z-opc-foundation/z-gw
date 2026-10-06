@@ -128,7 +128,8 @@ public class NettyProxyFilter implements GatewayFilter {
                 @SuppressWarnings("unchecked")
                 java.util.Map<String, String> extraRespHeaders =
                         ctx.getAttribute("resp.headers", java.util.Map.class);
-                GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp, extraRespHeaders);
+                GatewayHandler.writeFullResponse(nettyCtx, originalReq, resp, extraRespHeaders,
+                        GatewayHandler.policyOf(ctx));
             } catch (java.util.concurrent.TimeoutException te) {
                 throw new GatewayException.GatewayTimeoutException("Backend timeout");
             } catch (java.util.concurrent.ExecutionException ee) {

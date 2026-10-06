@@ -195,7 +195,24 @@ class AddResponseHeaderEndToEndTest {
 
         FullHttpResponse resp = runAndRead(channel);
         assertEquals(HttpResponseStatus.OK, resp.status());
-        assertEquals("*", resp.headers().get(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN),
-                "无额外头时行为与从前一致");
+        assertNull(resp.headers().get(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN),
+                "三参版没有 CORS 策略可依（corsEnabled 默认 false），所以不该补 ACAO；"
+                        + "此前它无条件写 *，与 corsEnabled 声明的默认值相反");
+    }
+
+    @Test
+    @DisplayName("带策略的 writeFullResponse：跨域开启时补 ACAO（对照组：显式传策略才补）")
+    void fullResponseWithPolicyAddsAllowOrigin() {
+        EmbeddedChannel channel = newChannelWithHandler();
+        FullHttpRequest req = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/demo/ping");
+        req.headers().set(HttpHeaderNames.ORIGIN, "http://app.example.com");
+        com.zifang.z.gw.core.config.ServerConfig cfg = new com.zifang.z.gw.core.config.ServerConfig();
+        cfg.setCorsEnabled(true);
+        GatewayHandler.writeFullResponse(channel.pipeline().firstContext(), req, backendResponse(), null,
+                com.zifang.z.gw.core.config.CorsPolicy.from(cfg));
+
+        FullHttpResponse resp = runAndRead(channel);
+        assertEquals(HttpResponseStatus.OK, resp.status());
+        assertEquals("*", resp.headers().get(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN));
     }
 }

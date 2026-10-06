@@ -135,7 +135,7 @@ class GatewayHandlerNotFoundJsonTest {
     }
 
     @Test
-    @DisplayName("健康检查与 OPTIONS 不受影响（对照组）")
+    @DisplayName("健康检查与预检直通（对照组）：健康检查恒通，OPTIONS 只在跨域开启时才被网关代答")
     void healthAndOptionsUnaffected() {
         EmbeddedChannel health = newChannel();
         health.writeInbound(get("/health"));
@@ -143,13 +143,32 @@ class GatewayHandlerNotFoundJsonTest {
         assertEquals(HttpResponseStatus.OK, hr.status());
         assertEquals("{\"status\":\"UP\"}", hr.content().toString(StandardCharsets.UTF_8));
 
-        EmbeddedChannel opts = newChannel();
+        // 跨域开启：预检仍由网关代答 204
+        ServerConfig corsOn = new ServerConfig();
+        corsOn.setCorsEnabled(true);
+        EmbeddedChannel opts = new EmbeddedChannel(
+                new GatewayHandler(corsOn, new RouteMatcher(), null, null));
         FullHttpRequest o = new DefaultFullHttpRequest(
                 HttpVersion.HTTP_1_1, HttpMethod.OPTIONS, "/anything");
         o.headers().set("Origin", "http://x");
         opts.writeInbound(o);
         FullHttpResponse or = opts.readOutbound();
         assertEquals(HttpResponseStatus.NO_CONTENT, or.status());
+    }
+
+    @Test
+    @DisplayName("默认配置下 OPTIONS 不被网关吞掉，走正常的路由匹配")
+    void optionsIsNotSwallowedByDefault() {
+        EmbeddedChannel opts = newChannel();
+        FullHttpRequest o = new DefaultFullHttpRequest(
+                HttpVersion.HTTP_1_1, HttpMethod.OPTIONS, "/anything");
+        o.headers().set("Origin", "http://x");
+        opts.writeInbound(o);
+
+        FullHttpResponse or = opts.readOutbound();
+        assertNotNull(or);
+        assertEquals(HttpResponseStatus.NOT_FOUND, or.status(),
+                "corsEnabled 默认 false，此前无论开关如何 OPTIONS 一律被 writeCorsOptions 拦成 204");
     }
 
     @Test

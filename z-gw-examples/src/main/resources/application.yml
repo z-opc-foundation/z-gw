@@ -47,6 +47,15 @@ zgw:
     # 任何客户端都能自己填 X-Forwarded-For 绕过 IP 限流。前提由网络层保证。
     trustedProxyHops: 0
 
+    # 出站 CORS（corsEnabled 默认 false = 一个 CORS 头都不写，OPTIONS 也不被网关代答）
+    corsEnabled: false
+    # 允许的来源，逗号分隔：* = 任意；具体列表 = 只回显命中的那个，不在列表里则不写 ACAO；
+    #   一个都不配 = 不允许任何来源（不会退化成 *）
+    corsAllowedOrigins: "*"
+    corsAllowedMethods: "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+    corsAllowedHeaders: "*"
+    corsMaxAge: 3600
+
   security:
     enabled: true
     jwtSecret: z-gw-examples-secret-please-change

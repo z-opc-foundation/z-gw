@@ -52,7 +52,7 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
 | 熔断 | `HystrixFilterFactory` + `SlidingWindowCircuitBreaker` | errorThresholdPercentage / requestVolumeThreshold / sleepWindowMs 三参 |
 | 重试 | `RetryFilterFactory` | retries + backoffMs |
 | 改写 | `StripPrefix` / `PrefixPath` / `RewritePath` / `AddRequestHeader` / `AddResponseHeader` | 均为过滤器工厂 |
-| CORS | `CorsGlobalFilter` + `GatewayHandler` 的 OPTIONS 预检直通 | `zgw.server.cors-*` 参数 |
+| CORS | `CorsPolicy`（由 `ServerConfig` 的 `cors-*` 五个字段派生）+ `GatewayHandler` 的预检直通 | **默认关闭**；开启后 `corsAllowedOrigins` 支持 `*` 或白名单，命中回显并带 `Vary: Origin` |
 | 出站代理 | `NettyProxyFilter` + `BackendHttpClient` | 独立 EventLoop 出站，`connectTimeoutMs` / `readTimeoutMs` / `writeTimeoutMs` 三档，透传 `X-Request-Id` |
 | 可观测 | `MetricsGlobalFilter`（Micrometer：`zgw.request.duration` 百分位直方图 + `zgw.request.total`）+ `TracingGlobalFilter`（requestId + 耗时）+ `LoggingGlobalFilter` / `ErrorHandlingGlobalFilter` | Prometheus 走 `micrometer-registry-prometheus` |
 | Actuator 健康 | `ZGatewayHealthIndicator` | `/actuator/health/zGateway` 上报 Netty server started 状态 |
@@ -337,6 +337,38 @@ map 写法不变。
 **升级影响**：配了限流/熔断/重试简写的部署在升级后参数会真的生效。
 升级前请确认那些数字是你想要的——尤其是限流，升级后流量会被真正拦住。
 
+### 10. `cors-*` 五个字段此前全是死参数，且"默认关闭跨域"从未生效（行为变更）
+
+`ServerConfig` 上 `corsEnabled` / `corsAllowedOrigins` / `corsAllowedMethods` /
+`corsAllowedHeaders` / `corsMaxAge` 五个字段**只有声明和 getter，零读取点**，
+而实际写出去的响应头一律是 `ACAO: *` **且无条件写**。也就是说：
+
+- `corsEnabled` 默认是 `false`，README 却写着"默认关闭"——**实际从未生效过**，
+  网关对外一直无条件放行任意来源；
+- `corsAllowedMethods` / `corsAllowedHeaders` / `corsMaxAge` 改什么都不影响预检响应；
+- `corsAllowedOrigins` 压根没人读，配白名单也没用。
+
+现在新增 `CorsPolicy`（`zgw-core` 的不可变值对象，由那五个字段派生，
+`GatewayHandler` 构造时算一次并挂在 `GatewayContext` 上），
+`writeJson` / `writeFullResponse` / `writeError` / `writeInternalError` / `writeCorsOptions`
+各自的 policy 重载按它出头。旧签名保留并委托到 `CorsPolicy.DISABLED`，
+既有调用方（含外部嵌入的）不受影响。
+
+语义：
+
+| 配置 | 行为 |
+|---|---|
+| `corsEnabled: false`（默认） | **一个 CORS 头都不写**，且 OPTIONS 不被网关吞掉，走正常路由匹配（转后端或如实 404） |
+| `corsAllowedOrigins: "*"` | 回 `ACAO: *` |
+| 配具体列表 | **回显**命中的 Origin 并补 `Vary: Origin`；不在列表里就**不写 ACAO**（让浏览器自己拦） |
+| 列表为空 | 不允许任何来源（**不会**退化成 `*` —— 配漏了不能静默变成全放行） |
+
+`Vary: Origin` 是回显具体 Origin 时的硬要求：不标的话代理/缓存会把这一份喂给别的站点。
+本仓从不发 `Access-Control-Allow-Credentials`，所以 `ACAO: *` 本身不是凭据泄露面。
+
+**升级影响**：跨站前端此前依赖"网关无条件回 `ACAO: *`"能工作，升级后默认不再有这个头。
+需要跨域的部署必须显式开 `zgw.server.cors-enabled: true` 并配 `cors-allowed-origins`。
+
 ### 8. 未修改但已知的契约缺口：`RewritePath` 的简写语法不可用
 
 `RewritePathFilterFactory` 要求 `args.size() >= 2`，而简写
@@ -411,11 +443,12 @@ P2 转发时发：XFF: 8.8.8.8, 10.0.0.1        ← P2 自己不在里面
 mvn test
 ```
 
-实测规模：**169 个 `@Test`**（`z-gw-core` 166 + `z-gw-spring-boot-starter` 3），
+实测规模：**180 个 `@Test`**（`z-gw-core` 177 + `z-gw-spring-boot-starter` 3），
 26 个测试类，无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
+| `GatewayHandlerCorsTest` | 16 | CORS 默认**关闭**（一个头都不写、OPTIONS 不被吞）、预检与实际响应说同一套话、`cors-allowed-methods`/`headers`/`max-age` 真接了、Origin 白名单命中回显 + `Vary: Origin`（**预检与实际响应两个出口各有判据**）、白名单外不写 ACAO、空列表不放大成 `*` |
 | `GatewayClientIpResolutionTest` | 13 | `clientIp` 不能由客户端自选：默认可信度为 0、XFF 从右往左数（1/2/3 跳）、伪造的左侧段被无视、段数不足/非 IP 字面量都回落到 TCP 远端地址、`hops>1` 不拿 `X-Real-IP` 顶替、IPv6 远端取到的是 IP 本身、端到端进 `GatewayContext` 的也不是自填的那个 |
 | `RateLimiterClockInjectionTest` | 11 | 两个限流器的时钟可注入、参数校验、429 带 `Retry-After` |
 | `YamlRouteLoaderStrictnessTest` | 9 | 拼错的谓词 / 过滤器不再被静默丢弃 |

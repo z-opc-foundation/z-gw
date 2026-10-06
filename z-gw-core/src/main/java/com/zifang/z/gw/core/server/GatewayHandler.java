@@ -3,6 +3,7 @@ package com.zifang.z.gw.core.server;
 import com.zifang.z.gw.api.GatewayContext;
 import com.zifang.z.gw.api.GatewayException;
 import com.zifang.z.gw.api.RouteDefinition;
+import com.zifang.z.gw.core.config.CorsPolicy;
 import com.zifang.z.gw.core.config.ServerConfig;
 import com.zifang.z.gw.core.http.BackendHttpClient;
 import com.zifang.z.gw.core.router.FilterAssembler;
@@ -72,6 +73,11 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
     private final BackendHttpClient backendClient;
     /** 跑过滤器链用的业务线程池，按 {@code ServerConfig.businessThread*} 建。 */
     private final ThreadPoolExecutor businessExecutor;
+    /**
+     * 出站 CORS 策略，由 {@code ServerConfig} 的 {@code cors-*} 五个字段派生。
+     * <p>配置是启动时读的，所以构造时算一次；逐请求重解析逗号列表纯属浪费。</p>
+     */
+    private final CorsPolicy corsPolicy;
 
     public GatewayHandler(ServerConfig serverConfig,
                           RouteMatcher routeMatcher,
@@ -81,6 +87,7 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         this.routeMatcher = routeMatcher;
         this.filterAssembler = filterAssembler;
         this.backendClient = backendClient;
+        this.corsPolicy = CorsPolicy.from(serverConfig);
         this.businessExecutor = newBusinessExecutor(serverConfig);
     }
 
@@ -129,13 +136,16 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         try {
             // 健康检查直通
             if (isHealthPath(ctx.getPath())) {
-                writeJson(nettyCtx, request, 200, "{\"status\":\"UP\"}");
+                writeJson(nettyCtx, request, 200, "{\"status\":\"UP\"}", null, corsPolicy);
                 return;
             }
 
-            // OPTIONS 预检
-            if ("OPTIONS".equalsIgnoreCase(ctx.getMethod())) {
-                writeCorsOptions(nettyCtx, request);
+            // OPTIONS 预检。**只在跨域已开启时才拦**：
+            // corsEnabled 默认 false，而此前这一段是无条件的 —— 声明"默认关闭跨域"，
+            // 实际是网关对任意来源一律回 204 + ACAO: *。关掉跨域时 OPTIONS 不该被网关
+            // 吞掉，走正常的路由匹配（转给后端，或如实回 404）。
+            if (corsPolicy.isEnabled() && "OPTIONS".equalsIgnoreCase(ctx.getMethod())) {
+                writeCorsOptions(nettyCtx, request, corsPolicy);
                 return;
             }
 
@@ -146,7 +156,7 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
                 // X-Request-Id 头且无校验)，必须与下面两处一样过 escape()。
                 writeJson(nettyCtx, request, 404,
                         "{\"error\":\"Not Found\",\"message\":\"No route matched " + escape(ctx.getPath())
-                                + "\",\"requestId\":\"" + escape(ctx.getRequestId()) + "\"}");
+                                + "\",\"requestId\":\"" + escape(ctx.getRequestId()) + "\"}", null, corsPolicy);
                 return;
             }
             ctx.setMatchedRoute(route);
@@ -159,12 +169,12 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
                         ctx.getRequestId(), serverConfig.getBusinessThreadCore(),
                         serverConfig.getBusinessThreadMax(), serverConfig.getBusinessQueue());
                 writeError(nettyCtx, request, new GatewayException.BadGatewayException(
-                        "Gateway overloaded: business queue full"));
+                        "Gateway overloaded: business queue full"), corsPolicy);
             }
         } catch (GatewayException ge) {
-            writeError(nettyCtx, request, ge);
+            writeError(nettyCtx, request, ge, corsPolicy);
         } catch (Exception e) {
-            writeInternalError(nettyCtx, request, ctx.getRequestId(), e);
+            writeInternalError(nettyCtx, request, ctx.getRequestId(), e, corsPolicy);
         }
     }
 
@@ -207,6 +217,9 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         ctx.setMethod(request.method().name());
         ctx.setUri(request.uri());
         ctx.setHost(request.headers().get(HttpHeaderNames.HOST));
+        // CORS 策略挂上：writeErrorOnce / writeInternalErrorOnce / NettyProxyFilter
+        // 都在链上，只能经 ctx 拿到"本次请求该用哪套 CORS 头"。
+        ctx.setAttribute(CorsPolicy.ATTR, corsPolicy);
 
         // 解析 path & query
         QueryStringDecoder dec = new QueryStringDecoder(request.uri());
@@ -344,7 +357,7 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
     // === 写响应 ===
 
     public static void writeJson(ChannelHandlerContext nettyCtx, FullHttpRequest request, int status, String json) {
-        writeJson(nettyCtx, request, status, json, null);
+        writeJson(nettyCtx, request, status, json, null, CorsPolicy.DISABLED);
     }
 
     /**
@@ -354,14 +367,22 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
      */
     public static void writeJson(ChannelHandlerContext nettyCtx, FullHttpRequest request, int status,
                                  String json, java.util.Map<String, String> extraHeaders) {
+        writeJson(nettyCtx, request, status, json, extraHeaders, CorsPolicy.DISABLED);
+    }
+
+    /**
+     * @param cors 出站 CORS 策略；{@link CorsPolicy#DISABLED} 表示一个 CORS 头都不写
+     */
+    public static void writeJson(ChannelHandlerContext nettyCtx, FullHttpRequest request, int status,
+                                 String json, java.util.Map<String, String> extraHeaders, CorsPolicy cors) {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
                 HttpResponseStatus.valueOf(status), Unpooled.wrappedBuffer(bytes));
         resp.headers()
                 .set(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.APPLICATION_JSON)
-                .set(HttpHeaderNames.CONTENT_LENGTH, bytes.length)
-                // 与 writeCorsOptions 声明的同一个策略。少了这一格，预检会过、而浏览器读不到实际响应体。
-                .set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+                .set(HttpHeaderNames.CONTENT_LENGTH, bytes.length);
+        // 与预检声明的同一个策略。少了这一格，预检会过、而浏览器读不到实际响应体。
+        cors.applyActual(resp.headers(), request.headers().get(HttpHeaderNames.ORIGIN));
         if (extraHeaders != null) {
             for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
                 resp.headers().set(e.getKey(), e.getValue());
@@ -388,14 +409,19 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
      * 顺带修掉了令牌桶补充率为 0 时 {@code retryAfterSeconds} 变成 9223372036 的问题。</p>
      */
     public static void writeError(ChannelHandlerContext nettyCtx, FullHttpRequest request, GatewayException ge) {
+        writeError(nettyCtx, request, ge, CorsPolicy.DISABLED);
+    }
+
+    public static void writeError(ChannelHandlerContext nettyCtx, FullHttpRequest request,
+                                  GatewayException ge, CorsPolicy cors) {
         String json = "{\"error\":\"" + escape(ge.getCode()) + "\",\"message\":\"" + escape(ge.getMessage()) + "\"}";
         if (ge instanceof GatewayException.RateLimitedException) {
             long retry = ((GatewayException.RateLimitedException) ge).getRetryAfterSeconds();
             Map<String, String> extra = new HashMap<>(2);
             extra.put(HttpHeaderNames.RETRY_AFTER.toString(), Long.toString(Math.max(0L, retry)));
-            writeJson(nettyCtx, request, ge.getHttpStatus(), json, extra);
+            writeJson(nettyCtx, request, ge.getHttpStatus(), json, extra, cors);
         } else {
-            writeJson(nettyCtx, request, ge.getHttpStatus(), json);
+            writeJson(nettyCtx, request, ge.getHttpStatus(), json, null, cors);
         }
     }
 
@@ -405,9 +431,15 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
      */
     public static void writeInternalError(ChannelHandlerContext nettyCtx, FullHttpRequest request,
                                           String requestId, Throwable cause) {
+        writeInternalError(nettyCtx, request, requestId, cause, CorsPolicy.DISABLED);
+    }
+
+    public static void writeInternalError(ChannelHandlerContext nettyCtx, FullHttpRequest request,
+                                          String requestId, Throwable cause, CorsPolicy cors) {
         log.error("[{}] Gateway error", requestId, cause);
         writeJson(nettyCtx, request, 500,
-                "{\"error\":\"Internal Server Error\",\"message\":\"" + escape(cause.getMessage()) + "\"}");
+                "{\"error\":\"Internal Server Error\",\"message\":\"" + escape(cause.getMessage()) + "\"}",
+                null, cors);
     }
 
     /**
@@ -424,7 +456,7 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         if (nettyCtx == null || !claimResponse(ctx)) {
             return false;
         }
-        writeError(nettyCtx, request, ge);
+        writeError(nettyCtx, request, ge, policyOf(ctx));
         return true;
     }
 
@@ -434,8 +466,20 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         if (nettyCtx == null || !claimResponse(ctx)) {
             return false;
         }
-        writeInternalError(nettyCtx, request, ctx.getRequestId(), cause);
+        writeInternalError(nettyCtx, request, ctx.getRequestId(), cause, policyOf(ctx));
         return true;
+    }
+
+    /**
+     * 从 ctx 上取本次请求的 CORS 策略。
+     *
+     * <p>{@link GatewayContext} 可能不是本类构造的（单测直接 new、或别的宿主塞进来），
+     * 那种情况下没有这个 attribute —— 按"不写 CORS 头"处理，与 {@code corsEnabled}
+     * 的默认值一致。</p>
+     */
+    public static CorsPolicy policyOf(GatewayContext ctx) {
+        CorsPolicy p = ctx == null ? null : ctx.getAttribute(CorsPolicy.ATTR, CorsPolicy.class);
+        return p == null ? CorsPolicy.DISABLED : p;
     }
 
     /** 抢占"本请求响应尚未写出"的名额；抢到返回 true。 */
@@ -447,20 +491,28 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         return true;
     }
 
+    /**
+     * 写预检响应。
+     *
+     * <p>此前 {@code ACAO: *} / {@code ACAM} / {@code ACAH} / {@code ACMA} 全部写死，
+     * {@code ServerConfig} 上对应的 {@code corsAllowedMethods} / {@code corsAllowedHeaders} /
+     * {@code corsMaxAge} 三个字段<b>零读取点</b>，README 却写着「{@code zgw.server.cors-*}
+     * 参数」。现在都从策略出。</p>
+     */
     public static void writeCorsOptions(ChannelHandlerContext nettyCtx, FullHttpRequest request) {
+        writeCorsOptions(nettyCtx, request, CorsPolicy.DISABLED);
+    }
+
+    public static void writeCorsOptions(ChannelHandlerContext nettyCtx, FullHttpRequest request,
+                                        CorsPolicy policy) {
         FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.NO_CONTENT);
-        resp.headers()
-                .set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-                .set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET,POST,PUT,DELETE,OPTIONS,PATCH")
-                .set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*")
-                .set(HttpHeaderNames.ACCESS_CONTROL_MAX_AGE, "3600");
+        policy.applyPreflight(resp.headers(), request.headers().get(HttpHeaderNames.ORIGIN));
         nettyCtx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
     }
 
     public static void writeFullResponse(ChannelHandlerContext nettyCtx, FullHttpRequest request, FullHttpResponse backendResp) {
         writeFullResponse(nettyCtx, request, backendResp, null);
     }
-
     /**
      * 写回后端响应，可附带路由级过滤器声明的额外响应头。
      *
@@ -482,6 +534,15 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
      */
     public static void writeFullResponse(ChannelHandlerContext nettyCtx, FullHttpRequest request,
                                          FullHttpResponse backendResp, Map<String, String> extraHeaders) {
+        writeFullResponse(nettyCtx, request, backendResp, extraHeaders, CorsPolicy.DISABLED);
+    }
+
+    /**
+     * @param cors 出站 CORS 策略；{@link CorsPolicy#DISABLED} 表示不补 ACAO
+     */
+    public static void writeFullResponse(ChannelHandlerContext nettyCtx, FullHttpRequest request,
+                                         FullHttpResponse backendResp, Map<String, String> extraHeaders,
+                                         CorsPolicy cors) {
         // 保留 backend content 但设置新 status
         DefaultFullHttpResponse client = new DefaultFullHttpResponse(
                 backendResp.protocolVersion(),
@@ -496,7 +557,7 @@ public class GatewayHandler extends SimpleChannelInboundHandler<FullHttpRequest>
         // 于是预检 204 正常、正式请求也 200，但浏览器照样拦掉响应体。
         // ⚠ 用 contains 判断而不是直接 set：后端若自己显式给了 ACAO，那是那个服务的策略，网关不覆盖。
         if (!client.headers().contains(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN)) {
-            client.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+            cors.applyActual(client.headers(), request.headers().get(HttpHeaderNames.ORIGIN));
         }
         // AddResponseHeader 等过滤器声明的头，最后落地（优先级最高）
         if (extraHeaders != null) {

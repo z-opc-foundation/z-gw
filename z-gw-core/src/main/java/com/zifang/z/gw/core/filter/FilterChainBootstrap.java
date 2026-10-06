@@ -62,9 +62,10 @@ public class FilterChainBootstrap {
         // 顺序:Tracing -> Metrics -> Logging -> Error -> Proxy
         //
         // 这里<b>没有</b> CORS 过滤器。CORS 由 GatewayHandler 在链外处理：预检在
-        // channelRead0 里被 writeCorsOptions 直接拦下返回，进不了链；实际响应的
-        // ACAO 由 writeJson / writeFullResponse / writeError 各自带上。此前链里
-        // 挂过一个 CorsGlobalFilter，它只设了一个全仓零读取的 attribute
+        // channelRead0 里被 writeCorsOptions 拦下返回（**仅当 corsEnabled=true**，
+        // 关掉时 OPTIONS 走正常路由匹配），实际响应的 ACAO 由
+        // writeJson / writeFullResponse / writeError 各自按 CorsPolicy 补。
+        // 此前链里挂过一个 CorsGlobalFilter，它只设了一个全仓零读取的 attribute
         // (cors.short.circuit)、不设任何响应头、也不短路，是个可证明的 no-op，
         // 而 Javadoc 却写着「自动添加 CORS 响应头」—— 只会误导读代码的人。
         filterAssembler.addGlobalFilter(new TracingGlobalFilter());
