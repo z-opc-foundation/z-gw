@@ -9,6 +9,8 @@ export {default as Instance} from './pages/Instance'
 export {default as RouteList} from './pages/RouteList'
 export {default as Metrics} from './pages/Metrics'
 import HomePage from './pages/HomePage'
+import RouteDetail from './pages/RouteDetail.jsx'
+import GwApp from './pages/GwApp.jsx'
 
 /** 菜单 + 路由清单（lead 008 §10/§14/§16 批量落地）。App 壳在 suit 侧组装。 */
 export const appMeta = { title: 'z-gw API 网关', short: 'z-gw' }
