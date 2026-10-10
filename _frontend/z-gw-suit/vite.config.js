@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react'
 // z-gw 独立运行壳。dev 3011；proxy /gw → z-gw-admin（本机 9090 或 8888 反代）。
 export default defineConfig({
     plugins: [react()],
-  resolve: { dedupe: ['react', 'react-dom', 'react-router-dom', 'antd', '@ant-design/icons', 'axios'] },
+  resolve: { dedupe: ['react', 'react-dom', 'react-router-dom', 'antd', '@ant-design/icons', 'axios'] ,
+        alias: process.env.LOCAL_SIBLINGS === '1' ? { '@yuku123/z-gw-component': '../z-gw-component/src' } : {}},
     server: {
         port: 3011,
         fs: {allow: ['..']},
