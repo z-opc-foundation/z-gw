@@ -20,7 +20,7 @@ export const menuItems = [
     { key: '/z-gw/metrics', label: '指标', icon: <DashboardOutlined /> },
 ]
 
-export const routeTable = [
+export const routes = [
     { path: '/z-gw/home', Component: HomePage },
     { path: '/z-gw/instance', Component: Instance },
     { path: '/z-gw/routes', Component: RouteList },
