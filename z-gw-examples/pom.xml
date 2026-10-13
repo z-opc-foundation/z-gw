@@ -60,16 +60,15 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- 完整的 Spring Boot Web 用于管理 API -->
+        <!-- 完整的 Spring Boot Web 用于管理 API。版本由地板（spring-boot-dependencies 2.7.18）下发：
+             原先这里钉的是 2.7.12，比地板低一格，等于让示例程序单独跑在一个补丁版本上。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
-            <version>2.7.12</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
-            <version>2.7.12</version>
         </dependency>
     </dependencies>
 

@@ -101,11 +101,10 @@
         </dependency>
         -->
 
-        <!-- 监控指标 -->
+        <!-- 监控指标：版本由地板下发（原钉 1.12.13，2026-10-14 收回 1.9.17 地板） -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
-            <version>1.12.13</version>
         </dependency>
 
         <!-- host 桥接类 (proxy controller) 编译期需要, 运行期由宿主供 -->

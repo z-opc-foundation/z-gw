@@ -142,18 +142,12 @@
                 <version>${slf4j.version}</version>
             </dependency>
 
-            <!-- Micrometer — Prometheus 指标：地板（spring-boot 2.7.18）给 1.9.17，本仓要 1.12.13
-                 ⇒ 直接条目压住（child 的直接 DM 优先于继承来的）。 -->
-            <dependency>
-                <groupId>io.micrometer</groupId>
-                <artifactId>micrometer-core</artifactId>
-                <version>1.12.13</version>
-            </dependency>
-            <dependency>
-                <groupId>io.micrometer</groupId>
-                <artifactId>micrometer-registry-prometheus</artifactId>
-                <version>1.12.13</version>
-            </dependency>
+            <!-- Micrometer 2026-10-14 收回地板：原先这里直接 DM 钉 1.12.13，注释写的是
+                 "本仓要 1.12.13"。实测本仓只用到 Counter / Timer / Tags / MeterRegistry
+                 （MetricsGlobalFilter + GwMetricsController），这些 API 1.0 起就有，
+                 1.12.13 换来的没有任何编译期收益，只留下一处与全组织不一致的分叉。
+                 两格条目整块删掉，让地板 spring-boot-dependencies 2.7.18 的 1.9.17 说话。
+                 版本供给已上移到 z-boot-web-starter（全组织一次收口）。 -->
 
           <!-- 2026-09-29 撤掉过两格 io.prometheus:simpleclient / simpleclient_common（原钉 0.16.0）：
                那两格压的是地板 z-boot-dependencies 按坐标**直接**钉的 simpleclient=0.8.1（现读 1.0.19 发布件），

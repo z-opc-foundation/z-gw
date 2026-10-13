@@ -111,11 +111,11 @@
             <artifactId>z-util-parser-json</artifactId>
         </dependency>
 
-        <!-- 可观测性 -->
+        <!-- 可观测性：版本由地板下发（原钉 1.12.13，2026-10-14 收回 1.9.17 地板，
+             用到的 API 在地板版本上全都在，见根 pom 里的说明） -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
-            <version>1.12.13</version>
         </dependency>
 
         <!-- Test -->
