@@ -82,6 +82,26 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- z-util 抬到 1.2.2（去 Jackson 那版）：仓内 readTree / JsonNode 树导航改用自研
+                 JsonUtil / JsonCursor（com.zifang.util.json.*）。继承来的 z-boot-fleet DM 把它压在
+                 1.0.22，那版里没有 toPlainValue / JsonCursor ⇒ 不显式钉 1.2.2 编译不过。
+                 ⚠ 三条必须同笔钉：dependencyManagement 对**传递依赖**同样生效，
+                 只钉 parser-json 会被车队 BOM 把 dsl-kernel 压回旧版，造成运行期版本裂开。 -->
+            <dependency>
+                <groupId>io.github.yuku123</groupId>
+                <artifactId>z-util-core</artifactId>
+                <version>1.2.2</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.yuku123</groupId>
+                <artifactId>z-util-parser-json</artifactId>
+                <version>1.2.2</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.yuku123</groupId>
+                <artifactId>z-util-dsl-kernel</artifactId>
+                <version>1.2.2</version>
+            </dependency>
             <!-- z-gw 自家 5 个 reactor 坐标钉 ${project.version}。这一格不是装饰：继承来的 DM 会
                  改写**传递依赖**的版本，而 fleet 里 z-gw 那一格钉的是 repo1 上的旧发布件 1.0.4
                  （z-cache 试点实测：不补这格，shade/打包会把旧字节码当 sibling 打进来）。

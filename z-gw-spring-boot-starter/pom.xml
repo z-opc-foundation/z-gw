@@ -130,5 +130,11 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 去 Jackson：JsonUtil / JsonCursor 所在的 z-util-parser-json，版本由根 pom 的
+             dependencyManagement 下发 -->
+        <dependency>
+            <groupId>io.github.yuku123</groupId>
+            <artifactId>z-util-parser-json</artifactId>
+        </dependency>
     </dependencies>
 </project>

@@ -111,6 +111,15 @@
             <artifactId>z-util-parser-json</artifactId>
         </dependency>
 
+        <!-- 仅测试期：z-util 抬到 1.2.2 后不再传递 Jackson，而本模块的 src/test
+             （GatewayHandlerErrorResponseTest / GatewayHandlerNotFoundJsonTest）仍用
+             ObjectMapper 解析响应体。测试源码本轮不迁，Jackson 只在 test 作用域显式留一份。 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- 可观测性：版本由地板下发（原钉 1.12.13，2026-10-14 收回 1.9.17 地板，
              用到的 API 在地板版本上全都在，见根 pom 里的说明） -->
         <dependency>

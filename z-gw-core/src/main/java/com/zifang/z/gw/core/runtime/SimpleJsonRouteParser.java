@@ -3,7 +3,7 @@ package com.zifang.z.gw.core.runtime;
 import com.zifang.z.gw.api.FilterDefinition;
 import com.zifang.z.gw.api.PredicateDefinition;
 import com.zifang.z.gw.api.RouteDefinition;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zifang.util.json.JsonUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 简易 JSON 路由解析器 — 不依赖 SnakeYAML,通过 Jackson 解析 JSON 数组形式。
+ * 简易 JSON 路由解析器 — 不依赖 SnakeYAML,通过 z-util JsonUtil 解析 JSON 数组形式。
  *
  * <p>Spring Boot starter 场景下推荐用 {@code @ConfigurationProperties} 直接绑定
  * {@link com.zifang.z.gw.core.config.GatewayProperties} 而非此解析器。
@@ -31,15 +31,15 @@ import java.util.Map;
  */
 public final class SimpleJsonRouteParser {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
     private SimpleJsonRouteParser() {}
 
     @SuppressWarnings("unchecked")
     public static List<RouteDefinition> parse(String json) {
         if (json == null || json.trim().isEmpty()) return Collections.emptyList();
         try {
-            Object root = MAPPER.readValue(json, Object.class);
+            // JsonUtil.parse 的产物是 JsonObject/JsonArray, 必须先摊平成 plain 结构,
+            // 否则下面的 instanceof Map/List 判断不成立
+            Object root = JsonUtil.toPlainValue(JsonUtil.parse(json));
             if (root instanceof List) {
                 return YamlRouteLoader.fromMapList((List<Map<String, Object>>) root);
             }

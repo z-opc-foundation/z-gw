@@ -1,6 +1,6 @@
 package com.zifang.z.gw.starter.host;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zifang.util.json.JsonUtil;
 import com.zifang.z.gw.core.predicate.PredicateFactoryRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -84,7 +84,6 @@ public class GwProxyController {
      */
     @GetMapping(PREFIX + "/__instance")
     public void instance(HttpServletRequest req, HttpServletResponse resp) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("jvm", ManagementFactory.getRuntimeMXBean().getName());
         out.put("localPort", req.getLocalPort());
@@ -111,7 +110,7 @@ public class GwProxyController {
                 && Integer.valueOf(200).equals(bridge.get("status")));
         out.put("micrometerBridge", metricsBridge);
 
-        writeJson(resp, 200, out, mapper);
+        writeJson(resp, 200, out);
     }
 
     /**
@@ -121,15 +120,14 @@ public class GwProxyController {
      */
     @GetMapping(PREFIX + "/**")
     public void proxy(HttpServletRequest req, HttpServletResponse resp) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
         String sub = upstreamPath(req.getRequestURI());
         if (sub == null) {
-            writeJson(resp, 400, err(req.getRequestURI(), "bad path (whitelist [A-Za-z0-9_.-/], '..' 一律拒绝)"), mapper);
+            writeJson(resp, 400, err(req.getRequestURI(), "bad path (whitelist [A-Za-z0-9_.-/], '..' 一律拒绝)"));
             return;
         }
         String query = req.getQueryString();
         if (query != null && !query.isEmpty() && !SAFE_QUERY.matcher(query).matches()) {
-            writeJson(resp, 400, err(req.getRequestURI(), "bad query"), mapper);
+            writeJson(resp, 400, err(req.getRequestURI(), "bad query"));
             return;
         }
         String target = sub + (query == null || query.isEmpty() ? "" : "?" + query);
@@ -156,7 +154,7 @@ public class GwProxyController {
             // RouteAdminController#get 的 404 是 ResponseEntity.notFound().build() —— 空体、无 content-type。
             // 保留状态码原样透出, 但补一个 JSON 错误体, 否则前端只剩 axios 的 "status code 404" 一句话。
             if (body.length == 0 && status >= 400) {
-                writeJson(resp, status, err(target, "upstream answered " + status + " with empty body"), mapper);
+                writeJson(resp, status, err(target, "upstream answered " + status + " with empty body"));
                 return;
             }
             if (!json) {
@@ -164,7 +162,7 @@ public class GwProxyController {
                 // 两种都不许以"看起来有响应"的形态出去。
                 writeJson(resp, 502, err(target, "upstream answered non-JSON (content-type=" + ct
                         + ", status=" + status + "). /gw/admin/** 未注册时会被 SPA fallback 接走, "
-                        + "这不是网关没数据, 是 z-gw-admin 依赖没接通"), mapper);
+                        + "这不是网关没数据, 是 z-gw-admin 依赖没接通"));
                 return;
             }
             resp.setStatus(status);
@@ -174,7 +172,7 @@ public class GwProxyController {
             resp.getOutputStream().flush();
         } catch (Exception e) {
             writeJson(resp, 502, err(target, "loopback call failed: "
-                    + e.getClass().getSimpleName() + " " + e.getMessage()), mapper);
+                    + e.getClass().getSimpleName() + " " + e.getMessage()));
         } finally {
             if (conn != null) conn.disconnect();
         }
@@ -220,9 +218,9 @@ public class GwProxyController {
                 byte[] b = conn.getInputStream() == null
                         ? new byte[0] : readLimited(conn.getInputStream(), 8192);
                 if (b.length > 0) {
-                    // 200+HTML (SPA fallback) 时 readTree 必炸 —— 解析失败不能把已填好的 status/json 冲掉
+                    // 200+HTML (SPA fallback) 时解析必炸 —— 解析失败不能把已填好的 status/json 冲掉
                     try {
-                        r.put("body", new ObjectMapper().readTree(b));
+                        r.put("body", JsonUtil.toPlainValue(JsonUtil.parse(new String(b, "UTF-8"))));
                     } catch (Exception parse) {
                         r.put("rawBody", new String(b, "UTF-8").substring(0, Math.min(b.length, 200)));
                     }
@@ -270,8 +268,8 @@ public class GwProxyController {
         return m;
     }
 
-    private void writeJson(HttpServletResponse resp, int status, Object body, ObjectMapper mapper) throws Exception {
-        byte[] out = mapper.writeValueAsBytes(body);
+    private void writeJson(HttpServletResponse resp, int status, Object body) throws Exception {
+        byte[] out = JsonUtil.toJson(body).getBytes("UTF-8");
         resp.setStatus(status);
         resp.setContentType("application/json;charset=UTF-8");
         resp.setContentLength(out.length);
