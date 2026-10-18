@@ -3,7 +3,7 @@ import {Alert, Button, Card, Col, Descriptions, Row, Table, Tag} from 'antd'
 import {ArrowLeftOutlined, ReloadOutlined} from '@ant-design/icons'
 import {useNavigate, useParams} from 'react-router-dom'
 import {gwApi, gwErrorText, predicateText} from '../services/api'
-import {PageHeader} from '@/common/components/ui'
+import {PageHeader} from '@yuku123/z-frontend-common/ui'
 
 /**
  * 路由详情 — GET /api/gw/routes/{id}（上游按 InMemoryRouteRepository.get(id) 回单条 RouteDefinition）。

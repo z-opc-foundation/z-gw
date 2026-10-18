@@ -3,7 +3,7 @@ import {Alert, Button, Card, Col, Row, Space, Statistic, Table, Tag} from 'antd'
 import {ReloadOutlined} from '@ant-design/icons'
 import {useNavigate} from 'react-router-dom'
 import {gwApi, gwErrorText, predicateText} from '../services/api'
-import {EmptyState, PageHeader} from '@/common/components/ui'
+import {EmptyState, PageHeader} from '@yuku123/z-frontend-common/ui'
 
 /**
  * 路由列表 — GET /api/gw/routes（上游 RouteAdminController#list，直接序列化 InMemoryRouteRepository
