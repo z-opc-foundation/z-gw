@@ -14,17 +14,17 @@
 | 字段 | 值 |
 |------|-----|
 | **仓库** | `z-gw`（remote：`github.com/z-opc-foundation/z-gw`） |
-| **Maven 坐标** | `io.github.yuku123:z-gw:1.0.5`（根 POM 直接钉 `<version>`，flatten-maven-plugin 1.5.0 `oss` 模式常开） |
-| **当前版本** | `1.0.5`（2026-09 由 1.0.4 抬级，随 z-boot-dependencies 1.0.19 批量发布） |
-| **父项目** | `io.github.yuku123:z-boot-parent:1.0.21`（`<relativePath/>` 留空，parent 在 repo1 不在磁盘） |
-| **Maven Central** | 已发布（repo1 实测 HTTP 200）：`z-gw` / `z-gw-api` / `z-gw-core` / `z-gw-spring-boot-starter` / `z-gw-admin` 均到 `1.0.5` |
+| **Maven 坐标** | `io.github.yuku123:z-gw:1.0.6`（根 POM 直接钉 `<version>`，flatten-maven-plugin 1.5.0 `oss` 模式常开） |
+| **当前版本** | `1.0.6`（2026-10-19 按 pom 现读订正；此前 README 写的 1.0.5 已过期） |
+| **父项目** | `io.github.yuku123:z-boot-parent:1.1.0`（`<relativePath/>` 留空，parent 在 repo1 不在磁盘） |
+| **Maven Central** | 已发布（repo1 实测 HTTP 200）：`z-gw` / `z-gw-api` / `z-gw-core` / `z-gw-spring-boot-starter` / `z-gw-admin` 均到 `1.0.6`（repo1 maven-metadata 实测已发 1.0.1–1.0.6） |
 | **默认端口** | `9090` — Netty 网关代理端口（`zgw.server.port`）；`8888` — Spring Web 管理端口（examples 的 `server.port`，承载 admin API / actuator / Knife4j） |
-| **运行口径** | Java 8 · Spring Boot 2.7.18（servlet 栈；版本经 `z-boot-parent` → `z-boot-dependencies` 地板下发） |
+| **运行口径** | Java 8 · Spring Boot 2.7.18（servlet 栈；版本经 `z-boot-parent` 自带地板下发） |
 | **reactor 模块** | 4 个：`z-gw-api`、`z-gw-core`、`z-gw-spring-boot-starter`、`z-gw-admin`（`z-gw-examples` 已临时移出 `<modules>`，非发布目标） |
 | **最近更新** | 2026-09-30 |
 
 近期真实改造（`git log` 实测，README 上次落笔后已 16 个提交）：parent 从悬空的 `com.zifang:z-opc:1.0.0-SNAPSHOT`
-统一换到 `z-boot-parent:1.0.21`；netty 收敛为地板单一口径 4.1.138.Final（消除同 reactor 双版本）；
+统一换到 `z-boot-parent:1.1.0`；netty 收敛为地板单一口径 4.1.138.Final（消除同 reactor 双版本）；
 `flatten` 从 `central` profile 提到根 build 常开（修掉"本地 install 出的 pom 仍带悬空 parent"）；
 Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`）。
 
@@ -91,7 +91,7 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
 
 ```
 z-gw/
-├── pom.xml                        # 根聚合 POM：parent z-boot-parent:1.0.21，版本 1.0.5，central profile 发布
+├── pom.xml                        # 根聚合 POM：parent z-boot-parent:1.1.0，版本 1.0.6，central profile 发布
 ├── z-gw-api/                      # SPI 与模型（19 个类）：RouteDefinition / GatewayFilter(+Chain/Factory/Global)
 │                                  #   / PredicateFactory / RateLimiter / CircuitBreaker / LoadBalancer
 │                                  #   / ServiceDiscovery+ServiceInstance / GatewayContext；依赖 z-util-core、z-util-parser-json
@@ -128,12 +128,12 @@ z-gw/
 | 层级 | 技术 |
 |------|------|
 | 语言 / 运行时 | Java 8（compiler source/target 8；class major 52） |
-| 框架 | Spring Boot 2.7.18（由父链 `z-boot-dependencies` 地板下发；servlet 栈，无 WebFlux） |
+| 框架 | Spring Boot 2.7.18（由父链 `z-boot-parent` 自带地板下发；servlet 栈，无 WebFlux） |
 | 网络层 | `io.netty:netty-all` 4.1.138.Final（地板 netty-bom 下发；Epoll 可用即启用） |
 | 指标 | Micrometer 1.12.13 + micrometer-registry-prometheus（根 DM 压过地板的 1.9.17） |
 | 日志 | slf4j-api 2.0.9（根 DM 刻意抬过地板 1.7.36）+ log4j2 2.25.4（`log4j-slf4j2-impl` 由 core 字面承载） |
 | YAML | snakeyaml 2.0（根 DM 压 CVE-2022-1471 口径） |
-| 工具 | `z-util-core` / `z-util-parser-json`（版本走 z-boot-fleet 权威表） |
+| 工具 | `z-util-core` / `z-util-parser-json`（版本走 `z-boot-parent` 的兄弟仓权威表） |
 | 接口文档 | knife4j-openapi3-spring-boot-starter（admin） |
 | 测试 | JUnit Jupiter 5.10.2 + Mockito 5.12.0；surefire 3.2.5（本仓 pluginManagement 保留旧尺） |
 | 前端面板 | React 19 · antd 6 · Vite 6 · TypeScript 5.7（`z-gw-admin-frontend`，private npm 工程） |
@@ -150,7 +150,7 @@ z-gw/
 mvn clean install -DskipTests
 ```
 
-构建需能解析 `io.github.yuku123:z-boot-parent:1.0.21`（repo1 或镜像）；第三方版本一律走父链，
+构建需能解析 `io.github.yuku123:z-boot-parent:1.1.0`（repo1 或镜像）；第三方版本一律走父链，
 模块 POM 不应再有字面版本钉（`log4j-slf4j2-impl` 例外，见根 POM 注释）。
 
 ### 跑通演示（examples，含 admin API）
@@ -170,7 +170,7 @@ cd z-gw-examples && mvn spring-boot:run
 <dependency>
     <groupId>io.github.yuku123</groupId>
     <artifactId>z-gw-spring-boot-starter</artifactId>
-    <version>1.0.5</version>
+    <version>1.0.6</version>
 </dependency>
 ```
 
@@ -540,10 +540,10 @@ MIT，见仓库根 [`LICENSE`](LICENSE)（版权行 "Copyright (c) 2026 z-opc-fo
 
 | 项目 | 关系 |
 |---|---|
-| [z-boot](https://github.com/z-opc-foundation/z-boot) | 父链：`z-boot-parent` / `z-boot-dependencies` 版本地板 |
+| [z-boot](https://github.com/z-opc-foundation/z-boot) | 父链：`z-boot-parent` 自带的版本地板 |
 | [z-cache](https://github.com/z-opc-foundation/z-cache) · [z-mq](https://github.com/z-opc-foundation/z-mq) · [z-rpc](https://github.com/z-opc-foundation/z-rpc) · [z-vector](https://github.com/z-opc-foundation/z-vector) | 同组织兄弟仓 |
 
-聚合入口 `io.github.yuku123:z-boot-gw-starter`（repo1 实测 1.0.5 可拉取）可一行引入 z-gw 并锁定版本。
+聚合入口 `io.github.yuku123:z-boot-gw-starter`（repo1 实测 1.0.6 可拉取）可一行引入 z-gw 并锁定版本。
 
 _Maintained by the z-opc-foundation organization. z-gw 保持独立仓演进。_
 
@@ -551,13 +551,17 @@ _Maintained by the z-opc-foundation organization. z-gw 保持独立仓演进。_
 
 ## 文档目录
 
-- [`_doc/008_troubleshooting/`](_doc/008_troubleshooting/) — 踩坑与失败要点（控制台 dev / build 双双不可用实录）
 本项目文档统一收口在 `_doc/` 下:
 
-- `_doc/001_arch/` — 架构文档（目前为空目录，暂无文件）
-- `_doc/002_deploy/` — 部署资料（目前为空目录，暂无文件）
+- [`_doc/001_arch/`](_doc/001_arch/) — 架构与总览:
+  - [`00-overview.md`](_doc/001_arch/00-overview.md) — 项目总览：4 个 reactor 模块的职责边界、6 个谓词 / 8 个过滤器工厂 /
+    5 种负载均衡 / 3 种限流算法的真实实现面、管理 API 一览、9090 与 8888 两个端口的分工、
+    以及「原 README 宣传过但代码里实际没有」的那份如实边界清单
 - [`_doc/003_script/`](_doc/003_script/) — 运维脚本:
   - [`deploy_maven_center.sh`](_doc/003_script/deploy_maven_center.sh) — Maven Central 发布脚本
-- `_doc/004_skill/` — AI skill 定义（目前为空目录，暂无 skill）
+  - [`verify_central.sh`](_doc/003_script/verify_central.sh) — 对真实 Maven Central 校验发布件
+- [`_doc/008_troubleshooting/`](_doc/008_troubleshooting/) — 踩坑与失败要点（控制台 dev / build 双双不可用实录）
+
+`002_deploy` / `004_skill` / `005_testing` / `006_release` / `007_backlog` 五个槽位**按需不建** —— 本仓没有对应内容，不留空目录。
 
 各文档详细说明见各子目录。
