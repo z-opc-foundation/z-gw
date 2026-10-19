@@ -61,7 +61,7 @@ src/pages/Routes/List.tsx:14  '../api/client'     ← 错，少一层
 
 - `client.ts:31` 的 `baseURL = '/gw/admin'`，`vite.config.ts` 把 `/gw` 代理到 `:8888`，
   而 `:8888` 是 z-opc 合并 JVM：`/gw/admin/routes` → **302**（被 SSO 拦截器吞，302 对"有没有 handler"零信息，
-  这条已在 `z-oss/_doc/004_troubleshooting/2026-10-01_z-oss控制台_三处契约断裂.md` 的口径里证过），
+  这条已在 `z-oss/_doc/008_troubleshooting/01_z-oss控制台_三处契约断裂.md` 的口径里证过），
   `/gw/__absent__` → **200 text/html**（SPA index 兜底）。⇒ 网关 admin 后端不在这个进程里，
   修好 import 之后这个控制台仍然没有可调的后端，需要单独确认它该连谁。
 - `package.json` 的 devDependencies 里同时挂着 `unplugin-vue-components`（Vue 插件，React 项目用不上），

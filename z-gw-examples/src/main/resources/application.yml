@@ -58,7 +58,8 @@ zgw:
 
   security:
     enabled: true
-    jwtSecret: z-gw-examples-secret-please-change
+    # 001_凭证管理规范：字面量密钥一律走环境变量占位符（示例仓默认 changeit，生产必须注入真值）
+    jwtSecret: ${JWT_SECRET:changeit}
     publicPaths:
       - /health
       - /healthz

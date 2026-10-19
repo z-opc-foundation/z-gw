@@ -190,7 +190,9 @@ zgw:
 
 谓词/过滤器参数为 `name + args` 原生 map 形态（`_genkey_0` 即 Spring Binder 对无键列表项的约定），
 与 Spring Cloud Gateway 的字符串 SpEL 简写**不通用**。`zgw.security.jwt-secret` 等敏感项必须经
-环境变量/配置中心注入，禁止把真实值提交进 yml。
+环境变量/配置中心注入，禁止把真实值提交进 yml —— examples 那份
+`z-gw-examples/src/main/resources/application.yml` 已按 001_凭证管理规范 改成
+`jwtSecret: ${JWT_SECRET:changeit}`，起示例应用时用 `JWT_SECRET` 注入真值。
 
 ---
 
@@ -549,6 +551,7 @@ _Maintained by the z-opc-foundation organization. z-gw 保持独立仓演进。_
 
 ## 文档目录
 
+- [`_doc/008_troubleshooting/`](_doc/008_troubleshooting/) — 踩坑与失败要点（控制台 dev / build 双双不可用实录）
 本项目文档统一收口在 `_doc/` 下:
 
 - `_doc/001_arch/` — 架构文档（目前为空目录，暂无文件）
