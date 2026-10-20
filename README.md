@@ -43,7 +43,8 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
 | 负载均衡 | `Random` / `RoundRobin` / `Weighted` / `LeastConnections` / `IpHash` | `LoadBalancer` SPI，默认 RoundRobin |
 | 路由加载 | `YamlRouteLoader` / `SimpleJsonRouteParser` | yml / JSON 双入口（无 Spring 场景可用） |
 
-过滤器链（`FilterChainBootstrap.installDefaults`，顺序 Tracing → Metrics → CORS → Logging → Error → NettyProxy）：
+过滤器链（`FilterChainBootstrap.installDefaults`，**5 个**全局过滤器，顺序 Tracing → Metrics → Logging →
+Error → NettyProxy；**CORS 不在链里**，它由 `GatewayHandler` 在链外处理，见下方「如实边界」）：
 
 | 能力 | 实现 | 说明 |
 |------|------|------|
@@ -71,7 +72,7 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
   （HttpServerCodec + HttpObjectAggregator + ExpectContinue）里没有 WebSocket 协议处理器。
 - **注册中心动态发现/推送未实现**：`ServiceDiscovery` 是 SPI，内置实现只有 `StaticServiceDiscovery`
   （代码/yml 注册静态实例表）；没有 z-config / nacos 客户端，也没有配置推送监听，`zgw.discovery.*`
-  这类配置键在 `ZGatewayProperties` 中不存在。`lb://` 路由需自备 `ServiceDiscovery` 实现才能解析。
+  这类配置键在 `GatewayProperties` 中不存在（仓里没有 `ZGatewayProperties` 这个类）。`lb://` 路由需自备 `ServiceDiscovery` 实现才能解析。
 - **HTTP/2（`h2c://`）、IP/Header 黑白名单、HMAC 请求体签名**：代码中无实现（`BackendHttpClient`
   注释自述"HTTP/2 后续升级"）。
 - **无仓内部署资产**：本仓没有 Dockerfile / docker-compose / k8s 清单 / Makefile / `deploy/` 目录，
@@ -95,7 +96,7 @@ z-gw/
 ├── z-gw-api/                      # SPI 与模型（19 个类）：RouteDefinition / GatewayFilter(+Chain/Factory/Global)
 │                                  #   / PredicateFactory / RateLimiter / CircuitBreaker / LoadBalancer
 │                                  #   / ServiceDiscovery+ServiceInstance / GatewayContext；依赖 z-util-core、z-util-parser-json
-├── z-gw-core/                     # Netty 4 手写内核（46 个类 + 24 个测试类）：
+├── z-gw-core/                     # Netty 4 手写内核（47 个类 + 25 个测试类）：
 │   ├── server/                    #   GatewayServer（Nio/Epoll bootstrap）、GatewayHandler（FullHttpRequest 入口）
 │   ├── router/                    #   RouteMatcher、InMemoryRouteRepository、FilterAssembler
 │   ├── predicate/                 #   Path/Method/Header/Host/Weight/Time + 注册表
@@ -118,8 +119,9 @@ z-gw/
 ```
 
 5 个 Maven 子模块 POM 均**未**设 `maven.deploy.skip`，也都在根 DM 里钉 `${project.version}`
-（防 fleet 表旧发布件把传递依赖拽回 1.0.4），因此 `z-gw-admin` 同样会发 Maven Central —— 与 z-ctc 等仓
-"admin 不进 Central"的惯例不同，这是本仓现状。
+（防旧发布件把传递依赖拽回 1.0.4）。但根 POM 的 `central` profile 用
+`central-publishing-maven-plugin` 的 `<excludeArtifacts>` **把 `z-gw-admin` 排除在发布清单外** ——
+它不会随本仓发到 Central（此前 README 写「z-gw-admin 同样会发 Maven Central」是错的，与盘面 pom 不符）。
 
 ---
 
@@ -130,7 +132,7 @@ z-gw/
 | 语言 / 运行时 | Java 8（compiler source/target 8；class major 52） |
 | 框架 | Spring Boot 2.7.18（由父链 `z-boot-parent` 自带地板下发；servlet 栈，无 WebFlux） |
 | 网络层 | `io.netty:netty-all` 4.1.138.Final（地板 netty-bom 下发；Epoll 可用即启用） |
-| 指标 | Micrometer 1.12.13 + micrometer-registry-prometheus（根 DM 压过地板的 1.9.17） |
+| 指标 | Micrometer **1.9.17** + micrometer-registry-prometheus（2026-10-14 起收回地板，**根 DM 不再压**；`micrometer-core` 由 `z-gw-core` 声明，版本走父链地板） |
 | 日志 | slf4j-api 2.0.9（根 DM 刻意抬过地板 1.7.36）+ log4j2 2.25.4（`log4j-slf4j2-impl` 由 core 字面承载） |
 | YAML | snakeyaml 2.0（根 DM 压 CVE-2022-1471 口径） |
 | 工具 | `z-util-core` / `z-util-parser-json`（版本走 `z-boot-parent` 的兄弟仓权威表） |
@@ -486,7 +488,7 @@ mvn test
 ```
 
 实测规模：**185 个 `@Test`**（`z-gw-core` 182 + `z-gw-spring-boot-starter` 3），
-26 个测试类，无外部依赖即可全跑：
+26 个测试类（复算口径排除本仓 README 自守卫 `ReadmeClaimsTest.java`），无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
