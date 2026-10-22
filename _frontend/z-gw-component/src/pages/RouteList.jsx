@@ -72,6 +72,12 @@ export default function RouteList() {
                         rowKey={(r) => r.id}
                         loading={loading}
                         dataSource={rows}
+                        // pagination={false} 豁免说明：路由表是**部署期配置清单**
+                        // （后端 InMemoryRouteRepository 里那份 List<RouteDefinition>，
+                        // 由 z-opc 的 ZGwRoutesConfig 启动时注入），本页是只读面、没有新建入口，
+                        // 条数不随业务流量增长；而且全量条数已经由上方的
+                        // 「路由总数 (routes/stats.total)」卡片给出（GET /routes/stats），
+                        // 这一屏就能看到总数，再挂一条分页条只是重复信息。
                         pagination={false}
                         columns={[
                             {
