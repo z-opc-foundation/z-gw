@@ -11,7 +11,7 @@ import {
 } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { routeApi, type RouteDefinition } from '../api/client'
+import { routeApi, type RouteDefinition } from '../../api/client'
 
 /**
  * 路由列表页 — 展示 + 创建 + 删除 + 跳编辑。
@@ -57,7 +57,14 @@ export function RoutesListPage() {
         rowKey="id"
         loading={loading}
         dataSource={routes}
-        pagination={{ pageSize: 20 }}
+        // 分页按 lead 008 §2 规则 2 补齐四件套（原来只有 pageSize: 20，
+        // 缺 showSizeChanger / pageSizeOptions / showTotal），pageSize 保留原来的 20。
+        pagination={{
+          pageSize: 20,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total: number) => `共 ${total} 条`,
+        }}
         columns={[
           {
             title: 'ID',
