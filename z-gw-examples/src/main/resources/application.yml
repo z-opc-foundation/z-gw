@@ -58,8 +58,11 @@ zgw:
 
   security:
     enabled: true
-    # 001_凭证管理规范：字面量密钥一律走环境变量占位符（示例仓默认 changeit，生产必须注入真值）
-    jwtSecret: ${JWT_SECRET:changeit}
+    # 001_凭证管理规范：字面量密钥一律走环境变量占位符。
+    # ⚠ 这里**刻意不写兜底默认值**（不再是 ${JWT_SECRET:changeit}）：
+    #   兜底值等于又内置了一个"看起来能用"的默认密钥，而缺省即启动失败
+    #   （GatewayProperties#validate()）才是真正的硬化 —— 起示例应用必须注入 JWT_SECRET。
+    jwtSecret: ${JWT_SECRET}
     publicPaths:
       - /health
       - /healthz

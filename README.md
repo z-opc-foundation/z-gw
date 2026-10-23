@@ -68,6 +68,13 @@ Error → NettyProxy；**CORS 不在链里**，它由 `GatewayHandler` 在链外
   纯 Netty Channel 流水线（`GatewayServer` + `GatewayHandler`，Linux 可用时自动切 Epoll channel）。
 - **JWT 鉴权未生效**：`zgw.security.*`（jwtSecret / publicPaths / jwtLeewaySeconds）有配置 schema，
   但内置过滤器链里没有 JWT 校验过滤器，全仓也无 `Authorization`/`Bearer` 解析代码 —— 当前是预留位，勿当安全能力用。
+- **`jwtSecret` 刻意没有默认值（缺省即启动失败）**：本仓曾内置一个"请在生产环境修改"的硬编码占位串
+  （47 字符，零随机性），它随 1.0.4 / 1.0.5 / 1.0.6 三个中央版本流出且**不可撤回** ⇒ 留着默认值等于
+  一直邀请后来的人把它当"可用默认密钥"直接用。现在**没有**默认值：`zgw.security.enabled=true`
+  而 `zgw.security.jwt-secret` 缺省/空白 ⇒ **启动期就失败**（`GatewayProperties#validate()`；
+  starter 侧接在 properties 绑定完成后的 `afterPropertiesSet()` 上，无 Spring 侧接在
+  `GatewayBootstrap` 构造期）。逃生口只有一个，且要**明说**：`zgw.security.enabled=false`。
+  ⇒ 这条与上一条是两回事：密钥**没在用**，但**缺省值不许有**。
 - **WebSocket 代理未实现**：`ServerConfig.websocketEnabled` 字段存在但无人读取，Netty pipeline
   （HttpServerCodec + HttpObjectAggregator + ExpectContinue）里没有 WebSocket 协议处理器。
 - **注册中心动态发现/推送未实现**：`ServiceDiscovery` 是 SPI，内置实现只有 `StaticServiceDiscovery`
@@ -194,7 +201,16 @@ zgw:
 与 Spring Cloud Gateway 的字符串 SpEL 简写**不通用**。`zgw.security.jwt-secret` 等敏感项必须经
 环境变量/配置中心注入，禁止把真实值提交进 yml —— examples 那份
 `z-gw-examples/src/main/resources/application.yml` 已按 001_凭证管理规范 改成
-`jwtSecret: ${JWT_SECRET:changeit}`，起示例应用时用 `JWT_SECRET` 注入真值。
+`jwtSecret: ${JWT_SECRET}`（**刻意不带兜底默认值**），起示例应用时必须用 `JWT_SECRET` 注入真值。
+
+⚠ **`zgw.security.jwt-secret` 没有默认值，缺省即启动失败**：本仓曾内置一个"请在生产环境修改"的
+硬编码占位串（47 字符，零随机性），它随 1.0.4 / 1.0.5 / 1.0.6 三个中央版本流出且**不可撤回** ⇒
+留着默认值等于一直邀请后来的人把它当"可用默认密钥"直接用（风险比"没有密钥"还高 ——
+没人会想到要改它）。现在只有两种合法状态：**显式注入真值**，或**显式
+`zgw.security.enabled=false`**（明说"我不用 JWT"，与"忘了配"不是一回事）；
+两种都不是 ⇒ 启动期就炸（`GatewayProperties#validate()`；starter 侧在 properties 绑定完成后的
+`ZGatewayProperties#afterPropertiesSet()` 触发，无 Spring 场景在 `GatewayBootstrap` 构造期触发）。
+⇒ **给示例或自己的应用接入时，先注入 `JWT_SECRET`，否则起不来 —— 这是设计，不是 bug。**
 
 ---
 
@@ -487,8 +503,8 @@ P2 转发时发：XFF: 8.8.8.8, 10.0.0.1        ← P2 自己不在里面
 mvn test
 ```
 
-实测规模：**185 个 `@Test`**（`z-gw-core` 182 + `z-gw-spring-boot-starter` 3），
-26 个测试类（复算口径排除本仓 README 自守卫 `ReadmeClaimsTest.java`），无外部依赖即可全跑：
+实测规模：**197 个 `@Test`**（`z-gw-core` 188 + `z-gw-spring-boot-starter` 9），
+28 个测试类（复算口径排除本仓 README 自守卫 `ReadmeClaimsTest.java`），无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
@@ -507,6 +523,8 @@ mvn test
 | `RouteMatcherTest` | 6 | 路由匹配与热更新 |
 | `RateLimiterTest` | 6 | 三个限流器基本语义 |
 | `BackendHttpClientHeaderTest` | 6 | 出站只转发端到端头（hop-by-hop 剥除） |
+| `GatewayPropertiesSecretDefaultGuardTest` | 6 | `jwtSecret` 不许再有默认值：反射扫字段无长度 ≥ 8 的默认字符串常量 + 源码级扫无带字符串初值的字段声明 + 缺省确为 null + 阳性对照（缺密钥必抛）+ 阴性对照（给了合法密钥必过）+ 边界（显式 `enabled=false` 时不要求密钥） |
+| `ZGatewayJwtSecretFailFastTest` | 6 | starter 侧接线：组 A 接线隔离（只有 properties bean，牙齿对准 `afterPropertiesSet()` 那根线）+ 组 B 真实装配路径；缺密钥/空白密钥 ⇒ 启动失败，给了合法密钥 ⇒ 启动通过 |
 | `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
 | `FilterChainBootstrapDefaultsTest` | 3 | 默认全局过滤器链的构成与 order 排序；CORS 不在链里（由 `GatewayHandler` 处理） |
 | `FilterFactoryShorthandArgTest` | 8 | 限流/熔断/重试三个工厂的 yml 简写参数真的生效（此前静默落回默认值） |

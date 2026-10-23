@@ -104,7 +104,7 @@ z-gw/
 
 ### 3.5 演示启动器 `z-gw-examples/`
 
-`z-gw-examples/src/main/resources/application.yml` 是一份完整的网关配置样例：`server.port: 8888`（Web 侧，承载 admin API / actuator / Knife4j）、`zgw.server.port: 9090`（Netty 网关侧）、`zgw.server.trustedProxyHops: 0`、`zgw.server.corsEnabled: false`、`zgw.security.jwtSecret: ${JWT_SECRET:changeit}`，以及 4 条示例路由：
+`z-gw-examples/src/main/resources/application.yml` 是一份完整的网关配置样例：`server.port: 8888`（Web 侧，承载 admin API / actuator / Knife4j）、`zgw.server.port: 9090`（Netty 网关侧）、`zgw.server.trustedProxyHops: 0`、`zgw.server.corsEnabled: false`、`zgw.security.jwtSecret: ${JWT_SECRET}`（刻意不带兜底默认值 —— 缺省即启动失败，见 `GatewayProperties#validate()`），以及 4 条示例路由：
 
 1. `demo-echo` —— 静态 HTTP 转发到 `http://httpbin.org`，挂 `StripPrefix` + `AddResponseHeader`
 2. `user-service-v1` / `user-service-v2-canary` —— 灰度路由，`lb://user-service` + `lb://user-service-v2`，`Weight` 分组 90 / 10
