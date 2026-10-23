@@ -41,6 +41,11 @@ public class GatewayBootstrap {
     private final FilterChainBootstrap filterBootstrap;
 
     public GatewayBootstrap(GatewayProperties properties) {
+        // 启动即失败：配置缺关键项（当前只有 jwtSecret）必须在造出任何 Netty/出站资源之前炸，
+        // 不能拖到第一次请求、甚至拖到有人以为"网关起来了"才发现。
+        // 校验口径见 GatewayProperties#validate()。
+        properties.validate();
+
         this.properties = properties;
 
         this.routeMatcher = new RouteMatcher();

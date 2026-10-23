@@ -96,7 +96,7 @@ z-gw/
 ├── z-gw-api/                      # SPI 与模型（19 个类）：RouteDefinition / GatewayFilter(+Chain/Factory/Global)
 │                                  #   / PredicateFactory / RateLimiter / CircuitBreaker / LoadBalancer
 │                                  #   / ServiceDiscovery+ServiceInstance / GatewayContext；依赖 z-util-core、z-util-parser-json
-├── z-gw-core/                     # Netty 4 手写内核（47 个类 + 25 个测试类）：
+├── z-gw-core/                     # Netty 4 手写内核（47 个类 + 26 个测试类）：
 │   ├── server/                    #   GatewayServer（Nio/Epoll bootstrap）、GatewayHandler（FullHttpRequest 入口）
 │   ├── router/                    #   RouteMatcher、InMemoryRouteRepository、FilterAssembler
 │   ├── predicate/                 #   Path/Method/Header/Host/Weight/Time + 注册表
