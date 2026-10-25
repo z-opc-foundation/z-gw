@@ -70,7 +70,7 @@ export default function RouteDetail() {
                     <Col span={12} style={{marginTop: 12}}>
                         <Card title="谓词（AND 关系，全部命中才匹配）" size="small" loading={loading}>
                             <Table size="small" rowKey={(_, i) => i} dataSource={route?.predicates || []}
-                                   pagination={false}
+                                   pagination={false /* §2 规则 2 豁免：路由谓词是单条路由的配置条目，随路由规则数变化但条数有界；这是详情页里的子表 */}
                                    columns={[
                                        {title: '工厂', dataIndex: 'name', key: 'name', width: 110, render: (v) => <Tag>{v}</Tag>},
                                        {title: '展开', key: 'full', render: (_, p) => <code>{predicateText(p)}</code>},
@@ -85,7 +85,7 @@ export default function RouteDetail() {
                     <Col span={12} style={{marginTop: 12}}>
                         <Card title="路由级过滤器 / metadata" size="small" loading={loading}>
                             <Table size="small" rowKey={(_, i) => i} dataSource={route?.filters || []}
-                                   pagination={false}
+                                   pagination={false /* §2 规则 2 豁免：路由级过滤器 / metadata 同上，是详情页里的子表 */}
                                    columns={[
                                        {title: '过滤器', dataIndex: 'name', key: 'name', render: (v) => <Tag>{v}</Tag>},
                                        {
