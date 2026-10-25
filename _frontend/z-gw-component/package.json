@@ -1,6 +1,6 @@
 {
   "name": "@yuku123/z-gw-component",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "z-gw 可复用前端组件：API 网关管理台（实例自省/路由清单/指标；lead 005 §9）",
   "type": "module",
   "main": "./dist/index.js",

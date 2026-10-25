@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react'
-import {Alert, Button, Card, Space, Statistic, Table, Tag} from 'antd'
+import {Alert, Button, Card, Input, Space, Statistic, Table, Tag} from 'antd'
 import {ReloadOutlined} from '@ant-design/icons'
 import {gwApi, gwErrorText, parseSummaryRows} from '../services/api'
 
@@ -50,10 +50,17 @@ export default function Metrics() {
     const noTrafficButBridgeDead = !error && summary
         && !(summary.totalRequests > 0) && bridge && bridge.bridgeVisible === false
 
+    const [keyword, setKeyword] = useState('')
+    const filteredRows = keyword.trim()
+        ? rows.filter((r) => `${r.route || ''} ${Object.keys(r.cells || {}).join(' ')}`.toLowerCase().includes(keyword.trim().toLowerCase()))
+        : rows
+
     return (
         <div>
             <Card loading={loading} extra={
                 <Space>
+                    <Input.Search allowClear placeholder="按路由 / status 过滤" style={{width: 240}}
+                                  onChange={(e) => setKeyword(e.target.value)}/>
                     <Button icon={<ReloadOutlined/>} loading={loading} onClick={fetch}>刷新</Button>
                 </Space>
             }>
@@ -72,7 +79,7 @@ export default function Metrics() {
                                    value={summary?.totalRequests ?? '-'}/>
                         <Table size="small" style={{marginTop: 16}}
                                rowKey={(r) => r.route}
-                               dataSource={rows}
+                               dataSource={filteredRows}
                                /* §2 规则 2 豁免：行数 = 路由表条数（部署期配置，见路由清单页的豁免说明），非业务数据增长 */
                                pagination={false}
                                columns={[

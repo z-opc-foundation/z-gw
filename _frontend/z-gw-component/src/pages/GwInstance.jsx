@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react'
-import {Alert, Button, Card, Descriptions, Space, Table, Tag} from 'antd'
+import {Alert, Button, Card, Descriptions, Input, Space, Table, Tag} from 'antd'
 import {ReloadOutlined} from '@ant-design/icons'
 import {gwApi, gwErrorText} from '../services/api'
 import {EmptyState} from '@yuku123/z-frontend-common/ui'
@@ -51,6 +51,11 @@ export default function GwInstance() {
     const surface = data?.adminSurface
     const bridge = data?.micrometerBridge
     const wired = surface?.status === 200 && surface?.json
+
+    const [keyword, setKeyword] = useState('')
+    const filteredPredicates = keyword.trim()
+        ? (predicates || []).filter((p) => `${p.name || ''}`.toLowerCase().includes(keyword.trim().toLowerCase()))
+        : (predicates || [])
 
     return (
         <div>
@@ -120,13 +125,17 @@ export default function GwInstance() {
                 )}
             </Card>
             <Card title="谓词字典（GET /api/gw/meta/predicates，RouteMatcher 实际认识的谓词工厂）"
-                  size="small" style={{marginTop: 12}}>
+                  size="small" style={{marginTop: 12}}
+                  extra={<Space>
+                      <Input.Search allowClear placeholder="按谓词工厂名过滤" style={{width: 220}}
+                                    onChange={(e) => setKeyword(e.target.value)}/>
+                  </Space>}>
                 {predError ? (
                     <Alert type="info" showIcon
                            message={`谓词字典读取失败：${gwErrorText(predError)}`}
                            description="接通 z-gw-admin 依赖前这必然 404/502；接通后这里列出 Path/Method/Header/Host/Weight/Time 六个内置工厂。"/>
                 ) : (
-                    <Table size="small" rowKey={(r) => r.name} dataSource={predicates || []}
+                    <Table size="small" rowKey={(r) => r.name} dataSource={filteredPredicates}
                            /* §2 规则 2 豁免：谓词工厂是内置注册表的固定集合（Path/Method/Header/Host/Weight/Time，通常 6 条） */
                            pagination={false} loading={predicates === null && !predError}
                            columns={[{title: '谓词工厂', dataIndex: 'name', key: 'name', render: (v) => <Tag>{v}</Tag>}]}
