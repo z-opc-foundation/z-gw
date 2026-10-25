@@ -2,7 +2,6 @@ import {useCallback, useEffect, useState} from 'react'
 import {Alert, Button, Card, Space, Statistic, Table, Tag} from 'antd'
 import {ReloadOutlined} from '@ant-design/icons'
 import {gwApi, gwErrorText, parseSummaryRows} from '../services/api'
-import {PageHeader} from '@yuku123/z-frontend-common/ui'
 
 /**
  * 网关指标 — GET /api/gw/metrics/summary + /metrics/routes（上游 MetricsController 聚合
@@ -53,8 +52,6 @@ export default function Metrics() {
 
     return (
         <div>
-            <PageHeader title="网关指标"
-                        subtitle="z-gw 请求计数与平均 RT（数据源 /api/gw/metrics/summary，Micrometer zgw.* 指标聚合）"/>
             <Card loading={loading} extra={
                 <Space>
                     <Button icon={<ReloadOutlined/>} loading={loading} onClick={fetch}>刷新</Button>
@@ -76,6 +73,7 @@ export default function Metrics() {
                         <Table size="small" style={{marginTop: 16}}
                                rowKey={(r) => r.route}
                                dataSource={rows}
+                               /* §2 规则 2 豁免：行数 = 路由表条数（部署期配置，见路由清单页的豁免说明），非业务数据增长 */
                                pagination={false}
                                columns={[
                                    {title: '路由', dataIndex: 'route', key: 'route', render: (v) => <code>{v}</code>},

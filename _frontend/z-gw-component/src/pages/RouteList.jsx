@@ -1,9 +1,9 @@
 import {useCallback, useEffect, useState} from 'react'
-import {Alert, Button, Card, Col, Row, Space, Statistic, Table, Tag} from 'antd'
+import {Alert, Button, Card, Col, Input, Row, Space, Statistic, Table, Tag} from 'antd'
 import {ReloadOutlined} from '@ant-design/icons'
 import {useNavigate} from 'react-router-dom'
 import {gwApi, gwErrorText, predicateText} from '../services/api'
-import {EmptyState, PageHeader} from '@yuku123/z-frontend-common/ui'
+import {EmptyState} from '@yuku123/z-frontend-common/ui'
 
 /**
  * 路由列表 — GET /api/gw/routes（上游 RouteAdminController#list，直接序列化 InMemoryRouteRepository
@@ -42,10 +42,13 @@ export default function RouteList() {
         fetch()
     }, [fetch])
 
+    const [keyword, setKeyword] = useState('')
+    const filteredRows = keyword.trim()
+        ? rows.filter((r) => `${r.id || ''} ${r.uri || ''}`.toLowerCase().includes(keyword.trim().toLowerCase()))
+        : rows
+
     return (
         <div>
-            <PageHeader title="网关路由"
-                        subtitle="z-gw 在线路由表（数据源 GET /api/gw/routes → 环回转发到 z-gw-admin 的 /gw/admin/routes）"/>
             <Row gutter={12} style={{marginBottom: 12}}>
                 <Col span={8}>
                     <Card><Statistic title="路由总数 (routes/stats.total)" value={stats?.total ?? '-'}/></Card>
@@ -59,6 +62,8 @@ export default function RouteList() {
             </Row>
             <Card extra={
                 <Space>
+                    <Input.Search allowClear placeholder="按路由 ID / 目标 URI 过滤" style={{width: 240}}
+                                  onChange={(e) => setKeyword(e.target.value)}/>
                     <Button icon={<ReloadOutlined/>} loading={loading} onClick={fetch}>刷新</Button>
                 </Space>
             }>
@@ -71,7 +76,7 @@ export default function RouteList() {
                         size="small"
                         rowKey={(r) => r.id}
                         loading={loading}
-                        dataSource={rows}
+                        dataSource={filteredRows}
                         // pagination={false} 豁免说明：路由表是**部署期配置清单**
                         // （后端 InMemoryRouteRepository 里那份 List<RouteDefinition>，
                         // 由 z-opc 的 ZGwRoutesConfig 启动时注入），本页是只读面、没有新建入口，

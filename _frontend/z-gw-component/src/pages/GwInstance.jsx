@@ -2,7 +2,7 @@ import {useCallback, useEffect, useState} from 'react'
 import {Alert, Button, Card, Descriptions, Space, Table, Tag} from 'antd'
 import {ReloadOutlined} from '@ant-design/icons'
 import {gwApi, gwErrorText} from '../services/api'
-import {PageHeader} from '@yuku123/z-frontend-common/ui'
+import {EmptyState} from '@yuku123/z-frontend-common/ui'
 
 /**
  * 实例与端口 — GET /api/gw/__instance 的可视化（GwProxyController 自省，不经过 z-gw-admin）。
@@ -54,8 +54,6 @@ export default function GwInstance() {
 
     return (
         <div>
-            <PageHeader title="实例与端口"
-                        subtitle="GwProxyController 自省接口 GET /api/gw/__instance（admin 面接没接通 / Netty 在不在 / 指标桥不桥）"/>
             <Card loading={loading} extra={
                 <Space>
                     <Button icon={<ReloadOutlined/>} loading={loading} onClick={fetch}>刷新</Button>
@@ -129,9 +127,11 @@ export default function GwInstance() {
                            description="接通 z-gw-admin 依赖前这必然 404/502；接通后这里列出 Path/Method/Header/Host/Weight/Time 六个内置工厂。"/>
                 ) : (
                     <Table size="small" rowKey={(r) => r.name} dataSource={predicates || []}
+                           /* §2 规则 2 豁免：谓词工厂是内置注册表的固定集合（Path/Method/Header/Host/Weight/Time，通常 6 条） */
                            pagination={false} loading={predicates === null && !predError}
                            columns={[{title: '谓词工厂', dataIndex: 'name', key: 'name', render: (v) => <Tag>{v}</Tag>}]}
-                           locale={{emptyText: 'meta/predicates 返回 [] —— PredicateFactoryRegistry 里没有任何工厂（内置注册在构造函数里，这不该发生，查启动日志）'}}/>
+                           locale={{emptyText: <EmptyState title="谓词工厂为空"
+                                                          description="meta/predicates 返回 [] —— PredicateFactoryRegistry 里没有任何工厂（内置注册在构造函数里，这不该发生，查启动日志）"/>}}/>
                 )}
             </Card>
         </div>
