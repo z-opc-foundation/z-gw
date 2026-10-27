@@ -1,4 +1,4 @@
-import request from '@yuku123/z-frontend-common'
+import {request} from '@yuku123/z-frontend-common'
 
 /**
  * z-gw (API 网关) 管理面数据源。
