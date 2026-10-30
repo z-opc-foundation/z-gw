@@ -16,7 +16,7 @@
     <artifactId>z-gw-api</artifactId>
     <packaging>jar</packaging>
 
-    <name>z-gw-api</name>
+    <name>z-gw :: api</name>
     <description>
         z-gw 公开 API 层 — 路由定义、谓词/过滤器 SPI、网关上下文、统一异常模型。
         任何 z-gw 实现版本都必须暴露这层接口,实现者可替换底层运行时。

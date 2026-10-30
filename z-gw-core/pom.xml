@@ -16,7 +16,7 @@
     <artifactId>z-gw-core</artifactId>
     <packaging>jar</packaging>
 
-    <name>z-gw-core</name>
+    <name>z-gw :: core</name>
     <description>
         z-gw 核心引擎 — Netty 服务器、路由匹配(radixtree)、谓词工厂、过滤器工厂、
         5 种负载均衡、3 种限流、3 种熔断、服务发现、集群同步、HTTP 客户端。

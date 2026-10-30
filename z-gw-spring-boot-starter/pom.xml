@@ -16,7 +16,7 @@
     <artifactId>z-gw-spring-boot-starter</artifactId>
     <packaging>jar</packaging>
 
-    <name>z-gw-spring-boot-starter</name>
+    <name>z-gw :: spring-boot-starter</name>
     <description>
         z-gw Spring Boot 自动装配 starter — 一行依赖 + yaml 配置即可启动网关。
         通过 META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports 注册,

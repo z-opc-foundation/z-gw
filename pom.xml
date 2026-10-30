@@ -23,7 +23,7 @@
     <version>1.0.6</version>
     <packaging>pom</packaging>
 
-    <name>z-gw</name>
+    <name>z-gw :: root</name>
     <description>
         z-gw — 自研高性能 API Gateway，基于 Netty + Spring Boot 生态。
         设计融合: Spring Cloud Gateway 的 Route + Predicate + Filter 模型,

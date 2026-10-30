@@ -16,7 +16,7 @@
     <artifactId>z-gw-examples</artifactId>
     <packaging>jar</packaging>
 
-    <name>z-gw-examples</name>
+    <name>z-gw :: examples</name>
     <description>
         z-gw 示例启动器 — 单进程内置 z-gw + z-gw-admin,
         默认 :8888 提供管理 API, :9090 提供网关代理端口。
