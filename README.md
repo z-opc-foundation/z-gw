@@ -16,15 +16,15 @@
 | **仓库** | `z-gw`（remote：`github.com/z-opc-foundation/z-gw`） |
 | **Maven 坐标** | `io.github.yuku123:z-gw:1.0.6`（根 POM 直接钉 `<version>`，flatten-maven-plugin 1.5.0 `oss` 模式常开） |
 | **当前版本** | `1.0.6`（2026-10-19 按 pom 现读订正；此前 README 写的 1.0.5 已过期） |
-| **父项目** | `io.github.yuku123:z-boot-parent:1.1.0`（`<relativePath/>` 留空，parent 在 repo1 不在磁盘） |
+| **父项目** | `io.github.yuku123:z-boot-parent:1.2.0`（`<relativePath/>` 留空，parent 在 repo1 不在磁盘） |
 | **Maven Central** | 已发布（repo1 实测 HTTP 200）：`z-gw` / `z-gw-api` / `z-gw-core` / `z-gw-spring-boot-starter` / `z-gw-admin` 均到 `1.0.6`（repo1 maven-metadata 实测已发 1.0.1–1.0.6） |
 | **默认端口** | `9090` — Netty 网关代理端口（`zgw.server.port`）；`8888` — Spring Web 管理端口（examples 的 `server.port`，承载 admin API / actuator / Knife4j） |
-| **运行口径** | Java 8 · Spring Boot 2.7.18（servlet 栈；版本经 `z-boot-parent` 自带地板下发） |
+| **运行口径** | Java 17 · Spring Boot 3.3.13（servlet 栈；版本经 `z-boot-parent:1.2.0` 地板下发，2026-10-30 火车） |
 | **reactor 模块** | 4 个：`z-gw-api`、`z-gw-core`、`z-gw-spring-boot-starter`、`z-gw-admin`（`z-gw-examples` 已临时移出 `<modules>`，非发布目标） |
 | **最近更新** | 2026-09-30 |
 
 近期真实改造（`git log` 实测，README 上次落笔后已 16 个提交）：parent 从悬空的 `com.zifang:z-opc:1.0.0-SNAPSHOT`
-统一换到 `z-boot-parent:1.1.0`；netty 收敛为地板单一口径 4.1.138.Final（消除同 reactor 双版本）；
+统一换到 `z-boot-parent:1.2.0`；netty 收敛为地板单一口径 4.1.138.Final（消除同 reactor 双版本）；
 `flatten` 从 `central` profile 提到根 build 常开（修掉"本地 install 出的 pom 仍带悬空 parent"）；
 Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`）。
 
@@ -99,7 +99,7 @@ Error → NettyProxy；**CORS 不在链里**，它由 `GatewayHandler` 在链外
 
 ```
 z-gw/
-├── pom.xml                        # 根聚合 POM：parent z-boot-parent:1.1.0，版本 1.0.6，central profile 发布
+├── pom.xml                        # 根聚合 POM：parent z-boot-parent:1.2.0，版本 1.0.6，central profile 发布
 ├── z-gw-api/                      # SPI 与模型（19 个类）：RouteDefinition / GatewayFilter(+Chain/Factory/Global)
 │                                  #   / PredicateFactory / RateLimiter / CircuitBreaker / LoadBalancer
 │                                  #   / ServiceDiscovery+ServiceInstance / GatewayContext；依赖 z-util-core、z-util-parser-json
@@ -136,7 +136,7 @@ z-gw/
 
 | 层级 | 技术 |
 |------|------|
-| 语言 / 运行时 | Java 8（compiler source/target 8；class major 52） |
+| 语言 / 运行时 | Java 17（compiler source/target 17；class major 61，2026-10-30 火车） |
 | 框架 | Spring Boot 2.7.18（由父链 `z-boot-parent` 自带地板下发；servlet 栈，无 WebFlux） |
 | 网络层 | `io.netty:netty-all` 4.1.138.Final（地板 netty-bom 下发；Epoll 可用即启用） |
 | 指标 | Micrometer **1.9.17** + micrometer-registry-prometheus（2026-10-14 起收回地板，**根 DM 不再压**；`micrometer-core` 由 `z-gw-core` 声明，版本走父链地板） |
@@ -159,7 +159,7 @@ z-gw/
 mvn clean install -DskipTests
 ```
 
-构建需能解析 `io.github.yuku123:z-boot-parent:1.1.0`（repo1 或镜像）；第三方版本一律走父链，
+构建需能解析 `io.github.yuku123:z-boot-parent:1.2.0`（repo1 或镜像）；第三方版本一律走父链，
 模块 POM 不应再有字面版本钉（`log4j-slf4j2-impl` 例外，见根 POM 注释）。
 
 ### 跑通演示（examples，含 admin API）

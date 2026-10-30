@@ -109,8 +109,8 @@
 
         <!-- host 桥接类 (proxy controller) 编译期需要, 运行期由宿主供 -->
         <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
