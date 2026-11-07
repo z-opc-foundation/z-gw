@@ -1,6 +1,8 @@
 package com.zifang.z.gw.core.filter;
 
 import com.zifang.z.gw.api.GlobalFilter;
+import com.zifang.z.gw.core.config.GatewayProperties;
+import com.zifang.z.gw.core.filter.global.JwtAuthGlobalFilter;
 import com.zifang.z.gw.core.filter.global.LoggingGlobalFilter;
 import com.zifang.z.gw.core.filter.global.MetricsGlobalFilter;
 import com.zifang.z.gw.core.filter.global.TracingGlobalFilter;
@@ -34,27 +36,48 @@ public class FilterChainBootstrap {
     private final GatewayFilterFactoryRegistry factoryRegistry;
     /** 传给 NettyProxyFilter，让后端等待上限跟随配置而不是硬编码。 */
     private final com.zifang.z.gw.core.config.ServerConfig serverConfig;
+    /**
+     * 安全配置（nullable）：由 GatewayBootstrap / starter 自动配置传入。
+     * null = 旧构造器口径（不注册 JwtAuthGlobalFilter）；非 null 且 enabled=true 时才注册。
+     */
+    private final GatewayProperties.SecurityConfig security;
 
     public FilterChainBootstrap(FilterAssembler filterAssembler) {
-        this(filterAssembler, GatewayFilterFactoryRegistry.getInstance());
+        this(filterAssembler, GatewayFilterFactoryRegistry.getInstance(),
+                new com.zifang.z.gw.core.config.ServerConfig(), null);
     }
 
     public FilterChainBootstrap(FilterAssembler filterAssembler, GatewayFilterFactoryRegistry factoryRegistry) {
-        this(filterAssembler, factoryRegistry, new com.zifang.z.gw.core.config.ServerConfig());
+        this(filterAssembler, factoryRegistry, new com.zifang.z.gw.core.config.ServerConfig(), null);
     }
 
     public FilterChainBootstrap(FilterAssembler filterAssembler,
                                 com.zifang.z.gw.core.config.ServerConfig serverConfig) {
-        this(filterAssembler, GatewayFilterFactoryRegistry.getInstance(), serverConfig);
+        this(filterAssembler, GatewayFilterFactoryRegistry.getInstance(), serverConfig, null);
     }
 
     public FilterChainBootstrap(FilterAssembler filterAssembler,
                                 GatewayFilterFactoryRegistry factoryRegistry,
                                 com.zifang.z.gw.core.config.ServerConfig serverConfig) {
+        this(filterAssembler, factoryRegistry, serverConfig, null);
+    }
+
+    /** 带安全配置：供 GatewayBootstrap / starter 自动配置把 {@code zgw.security.*} 接进过滤链。 */
+    public FilterChainBootstrap(FilterAssembler filterAssembler,
+                                com.zifang.z.gw.core.config.ServerConfig serverConfig,
+                                GatewayProperties.SecurityConfig security) {
+        this(filterAssembler, GatewayFilterFactoryRegistry.getInstance(), serverConfig, security);
+    }
+
+    public FilterChainBootstrap(FilterAssembler filterAssembler,
+                                GatewayFilterFactoryRegistry factoryRegistry,
+                                com.zifang.z.gw.core.config.ServerConfig serverConfig,
+                                GatewayProperties.SecurityConfig security) {
         this.filterAssembler = filterAssembler;
         this.factoryRegistry = factoryRegistry;
         this.serverConfig = serverConfig == null
                 ? new com.zifang.z.gw.core.config.ServerConfig() : serverConfig;
+        this.security = security;
     }
 
     public void installDefaults() {
@@ -71,6 +94,12 @@ public class FilterChainBootstrap {
         filterAssembler.addGlobalFilter(new TracingGlobalFilter());
         filterAssembler.addGlobalFilter(new MetricsGlobalFilter());
         filterAssembler.addGlobalFilter(new LoggingGlobalFilter());
+        // JWT 鉴权（order=0，Tracing 之后、ErrorHandling/Proxy 之前）：仅当显式传入安全配置
+        // 且 enabled=true 时注册。enabled=false 或旧构造器（未传 security）都不注册，
+        // 与 GatewayProperties#validate() 「显式关闭才放行」的口径一致。
+        if (security != null && security.isEnabled()) {
+            filterAssembler.addGlobalFilter(new JwtAuthGlobalFilter(security));
+        }
         filterAssembler.addGlobalFilter(new ErrorHandlingGlobalFilter());
 
         // === 代理过滤器: order=999 最晚执行 ===

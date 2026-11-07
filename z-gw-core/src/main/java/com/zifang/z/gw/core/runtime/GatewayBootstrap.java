@@ -57,7 +57,10 @@ public class GatewayBootstrap {
         // 与 NettyProxyFilter，两处都读 readTimeoutMs / connectTimeoutMs / maxPoolSize /
         // maxContentLength / businessThread*。此前这里调的是 1 参构造器，落到
         // new ServerConfig() 默认值上——非 Spring 入口下运维配的 server 段整个被忽略。
-        this.filterBootstrap = new FilterChainBootstrap(filterAssembler, properties.getServer());
+        // 同时把 properties.getSecurity() 传进去：installDefaults() 据此在 enabled=true 时
+        // 注册 JwtAuthGlobalFilter，让 zgw.security.* 在无 Spring 入口下也真正生效。
+        this.filterBootstrap = new FilterChainBootstrap(
+                filterAssembler, properties.getServer(), properties.getSecurity());
 
         GatewayHandler handler = new GatewayHandler(
                 properties.getServer(), routeMatcher, filterAssembler, backendClient);

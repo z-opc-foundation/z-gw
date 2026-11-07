@@ -68,7 +68,8 @@ public class ZGatewayAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(FilterChainBootstrap.class)
     public FilterChainBootstrap filterChainBootstrap(FilterAssembler filterAssembler, ZGatewayProperties props) {
-        return new FilterChainBootstrap(filterAssembler, props.getServer());
+        // 把 zgw.security.* 传进过滤链：installDefaults() 在 enabled=true 时注册 JwtAuthGlobalFilter。
+        return new FilterChainBootstrap(filterAssembler, props.getServer(), props.getSecurity());
     }
 
     @Bean(destroyMethod = "shutdown")

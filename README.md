@@ -43,8 +43,9 @@ Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`�
 | 负载均衡 | `Random` / `RoundRobin` / `Weighted` / `LeastConnections` / `IpHash` | `LoadBalancer` SPI，默认 RoundRobin |
 | 路由加载 | `YamlRouteLoader` / `SimpleJsonRouteParser` | yml / JSON 双入口（无 Spring 场景可用） |
 
-过滤器链（`FilterChainBootstrap.installDefaults`，**5 个**全局过滤器，顺序 Tracing → Metrics → Logging →
-Error → NettyProxy；**CORS 不在链里**，它由 `GatewayHandler` 在链外处理，见下方「如实边界」）：
+过滤器链（`FilterChainBootstrap.installDefaults`，**6 个**全局过滤器，顺序 Tracing → Metrics → Logging →
+JwtAuth → Error → NettyProxy；其中 `JwtAuthGlobalFilter` 仅在 `zgw.security.enabled=true` 时注册（HS256 鉴权）；
+**CORS 不在链里**，它由 `GatewayHandler` 在链外处理，见下方「如实边界」）：
 
 | 能力 | 实现 | 说明 |
 |------|------|------|
@@ -66,15 +67,20 @@ Error → NettyProxy；**CORS 不在链里**，它由 `GatewayHandler` 在链外
 - **不是响应式/WebFlux 网关**：全仓 `*.java` 实测 `Mono`/`Flux` 出现 0 次；`reactor-netty:1.1.13`、
   `reactor-core:3.6.10` 只是根 POM `<dependencyManagement>` 预留槽位（无任何模块声明依赖），运行时是
   纯 Netty Channel 流水线（`GatewayServer` + `GatewayHandler`，Linux 可用时自动切 Epoll channel）。
-- **JWT 鉴权未生效**：`zgw.security.*`（jwtSecret / publicPaths / jwtLeewaySeconds）有配置 schema，
-  但内置过滤器链里没有 JWT 校验过滤器，全仓也无 `Authorization`/`Bearer` 解析代码 —— 当前是预留位，勿当安全能力用。
+- **JWT 鉴权已接入过滤链（此前为预留位，现已生效）**：`JwtAuthGlobalFilter`（order=0，Tracing 之后、
+  Proxy 之前）在 `zgw.security.enabled=true` 时由 `installDefaults()` 注册，从 `Authorization: Bearer <token>`
+  取 token，用 JDK 自带 `Mac(HmacSHA256)` 手写 HS256 校验：`alg` 严格等于 `HS256`（拒绝 `none`/`RS256`
+  混淆）、`MessageDigest.isEqual` 常量时间比对签名、按 `jwtLeewaySeconds` 校验 `exp`/`nbf`；
+  `publicPaths` 命中（支持 `/**`）免校验；校验失败短路写 **401**（响应体为固定文案，不含密钥/token/堆栈），
+  成功把 claims 放进 `auth.claims` 供下游使用。`enabled=false` 时不注册该过滤器（显式关闭才放行），
+  与 `GatewayProperties#validate()` 口径一致。
 - **`jwtSecret` 刻意没有默认值（缺省即启动失败）**：本仓曾内置一个"请在生产环境修改"的硬编码占位串
   （47 字符，零随机性），它随 1.0.4 / 1.0.5 / 1.0.6 三个中央版本流出且**不可撤回** ⇒ 留着默认值等于
   一直邀请后来的人把它当"可用默认密钥"直接用。现在**没有**默认值：`zgw.security.enabled=true`
   而 `zgw.security.jwt-secret` 缺省/空白 ⇒ **启动期就失败**（`GatewayProperties#validate()`；
   starter 侧接在 properties 绑定完成后的 `afterPropertiesSet()` 上，无 Spring 侧接在
   `GatewayBootstrap` 构造期）。逃生口只有一个，且要**明说**：`zgw.security.enabled=false`。
-  ⇒ 这条与上一条是两回事：密钥**没在用**，但**缺省值不许有**。
+  ⇒ 这条与上一条是两回事：上一条讲鉴权是否接链（现已接入），这一条讲密钥缺省值（仍不许有）。
 - **WebSocket 代理未实现**：`ServerConfig.websocketEnabled` 字段存在但无人读取，Netty pipeline
   （HttpServerCodec + HttpObjectAggregator + ExpectContinue）里没有 WebSocket 协议处理器。
 - **注册中心动态发现/推送未实现**：`ServiceDiscovery` 是 SPI，内置实现只有 `StaticServiceDiscovery`
@@ -103,7 +109,7 @@ z-gw/
 ├── z-gw-api/                      # SPI 与模型（19 个类）：RouteDefinition / GatewayFilter(+Chain/Factory/Global)
 │                                  #   / PredicateFactory / RateLimiter / CircuitBreaker / LoadBalancer
 │                                  #   / ServiceDiscovery+ServiceInstance / GatewayContext；依赖 z-util-core、z-util-parser-json
-├── z-gw-core/                     # Netty 4 手写内核（47 个类 + 26 个测试类）：
+├── z-gw-core/                     # Netty 4 手写内核（48 个类 + 27 个测试类）：
 │   ├── server/                    #   GatewayServer（Nio/Epoll bootstrap）、GatewayHandler（FullHttpRequest 入口）
 │   ├── router/                    #   RouteMatcher、InMemoryRouteRepository、FilterAssembler
 │   ├── predicate/                 #   Path/Method/Header/Host/Weight/Time + 注册表
@@ -261,8 +267,9 @@ zgw:
 任何配置项**。它与出站 `readTimeoutMs` 是两个互不相干的上限：后者管"网关等后端"，
 前者管"客户端多久不吐数据算断连"。要调入站超时目前只能改代码。
 
-其余"配置项存在但无人读取"的情况（`websocketEnabled`、JWT 鉴权、注册中心发现等）
-见上文 [如实边界](#如实边界原-readme-宣传过代码里实际没有的东西)。
+其余"配置项存在但无人读取"的情况（`websocketEnabled`、注册中心发现等）
+见上文 [如实边界](#如实边界原-readme-宣传过代码里实际没有的东西)；JWT 鉴权已不再是其中之一 ——
+`zgw.security.*` 现由 `JwtAuthGlobalFilter` 在运行时读取并生效。
 
 ### 3. 最少连接：在飞计数改由代理过滤器维护（行为变更）
 
@@ -503,8 +510,8 @@ P2 转发时发：XFF: 8.8.8.8, 10.0.0.1        ← P2 自己不在里面
 mvn test
 ```
 
-实测规模：**197 个 `@Test`**（`z-gw-core` 188 + `z-gw-spring-boot-starter` 9），
-28 个测试类（复算口径排除本仓 README 自守卫 `ReadmeClaimsTest.java`），无外部依赖即可全跑：
+实测规模：**210 个 `@Test`**（`z-gw-core` 201 + `z-gw-spring-boot-starter` 9），
+29 个测试类（复算口径排除本仓 README 自守卫 `ReadmeClaimsTest.java`），无外部依赖即可全跑：
 
 | 测试类 | 数 | 覆盖 |
 |--------|----|------|
@@ -527,6 +534,7 @@ mvn test
 | `ZGatewayJwtSecretFailFastTest` | 6 | starter 侧接线：组 A 接线隔离（只有 properties bean，牙齿对准 `afterPropertiesSet()` 那根线）+ 组 B 真实装配路径；缺密钥/空白密钥 ⇒ 启动失败，给了合法密钥 ⇒ 启动通过 |
 | `GatewayHandlerOffloadTest` | 5 | 过滤器链不占 Netty EventLoop、池满回错误响应 |
 | `FilterChainBootstrapDefaultsTest` | 3 | 默认全局过滤器链的构成与 order 排序；CORS 不在链里（由 `GatewayHandler` 处理） |
+| `JwtAuthGlobalFilterTest` | 13 | JWT 鉴权接链：有效 token / 过期 / 错签 / alg=none / alg=RS256 / 缺 header / 格式错 / nbf 未生效 / leeway 边界 / publicPaths（含 `/**`）放行 / enabled=false 不注册 / enabled=true 注册且 order 正确 / 端到端真写出 401 且不泄露密钥 |
 | `FilterFactoryShorthandArgTest` | 8 | 限流/熔断/重试三个工厂的 yml 简写参数真的生效（此前静默落回默认值） |
 | `AddResponseHeaderEndToEndTest` | 8 | `AddResponseHeader` 声明的头真的落到出站响应，并定义与后端/ACAO 兜底的优先级 |
 | `LeastConnectionsInFlightTest` | 5 | 最少连接的输入真有人维护（转发中在计数、四条出口都归还） |
