@@ -64,19 +64,32 @@ public class GwProxyController {
     private static final int LOOP_TIMEOUT_MS = 5000;
     private static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
 
-    /** z-gw Netty 数据面端口 (application.properties: zgw.server.port=9090), 只用于 __instance 的 TCP 自证 */
-    @Value("${z.gw.server.port:9090}")
+    /** z-gw Netty 数据面端口。⚠ key 是 {@code zgw.server.port}（ZGatewayProperties prefix="zgw"），
+     *  2026-11-11 修正：此前误写成 {@code z.gw.server.port} 永远落默认 9090，
+     *  __instance 把别家进程的 9090 当成自己数据面造成假阳性。 */
+    @Value("${zgw.server.port:9090}")
     private int nettyPort;
 
-    /** z-gw starter 开关的 Spring 解析值 (matchIfMissing=true ⇒ 缺省即 true); __instance 自证用 */
-    @Value("${z.gw.enabled:true}")
-    private boolean zgwEnabled;
+    /** 环回 host：宿主 Tomcat 可能绑在 ::1 而 127.0.0.1 被别的进程占着（2026-11-11 实测：
+     *  tokserve 的 Python 占 127.0.0.1:8899，环回 404 text/html 被代理当 502 透传）。
+     *  IPv6 字面量拼 URL 时要加 []。缺省维持 127.0.0.1 老行为。 */
+    @Value("${z.gw.admin.loopback-host:127.0.0.1}")
+    private String loopbackHost;
 
     /** 见类注释: 补 z-gw-spring-boot-starter 缺失的 @Bean, 否则 z-gw-admin 一通 MetaController 就炸启动 */
     @Bean
     public PredicateFactoryRegistry predicateFactoryRegistry() {
         return PredicateFactoryRegistry.getInstance();
     }
+
+    private String loopbackBase(int port) {
+        String host = loopbackHost == null || loopbackHost.isEmpty() ? "127.0.0.1" : loopbackHost;
+        return "http://" + (host.indexOf(':') >= 0 ? "[" + host + "]" : host) + ":" + port;
+    }
+
+    /** z-gw starter 开关的 Spring 解析值 (matchIfMissing=true ⇒ 缺省即 true); __instance 自证用 */
+    @Value("${z.gw.enabled:true}")
+    private boolean zgwEnabled;
 
     /**
      * 自省接口: "admin 面接没接通 / Netty 在不在 / 指标桥不桥" 三件事在这里分开回答,
@@ -91,7 +104,8 @@ public class GwProxyController {
         out.put("upstreamPrefix", UPSTREAM_PREFIX);
         out.put("zgwEnabled", Boolean.valueOf(zgwEnabled));
         out.put("nettyPort", Integer.valueOf(nettyPort));
-        out.put("nettyAcceptingNow", Boolean.valueOf(tcpConnectable("127.0.0.1", nettyPort)));
+        out.put("nettyAcceptingNow", Boolean.valueOf(tcpConnectable(
+                loopbackHost == null || loopbackHost.isEmpty() ? "127.0.0.1" : loopbackHost, nettyPort)));
 
         // 探针 1: admin 面本身 (pom 里没加 z-gw-admin 时这里就是 404 —— 那是"没接通", 不是"没有路由")
         // ⚠ 必须带调用方凭证: sso.intercept-paths 加了 /gw/admin/** 之后, 无凭证的环回探测只会拿到
@@ -133,7 +147,7 @@ public class GwProxyController {
         String target = sub + (query == null || query.isEmpty() ? "" : "?" + query);
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL("http://127.0.0.1:" + req.getLocalPort() + target).openConnection();
+            conn = (HttpURLConnection) new URL(loopbackBase(req.getLocalPort()) + target).openConnection();
             conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(LOOP_TIMEOUT_MS);
             conn.setReadTimeout(LOOP_TIMEOUT_MS);
@@ -192,7 +206,7 @@ public class GwProxyController {
         Map<String, Object> r = new LinkedHashMap<String, Object>();
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL("http://127.0.0.1:" + req.getLocalPort() + path).openConnection();
+            conn = (HttpURLConnection) new URL(loopbackBase(req.getLocalPort()) + path).openConnection();
             conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(LOOP_TIMEOUT_MS);
             conn.setReadTimeout(LOOP_TIMEOUT_MS);
