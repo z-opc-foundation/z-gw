@@ -14,17 +14,17 @@
 | 字段 | 值 |
 |------|-----|
 | **仓库** | `z-gw`（remote：`github.com/z-opc-foundation/z-gw`） |
-| **Maven 坐标** | `io.github.yuku123:z-gw:1.0.6`（根 POM 直接钉 `<version>`，flatten-maven-plugin 1.5.0 `oss` 模式常开） |
-| **当前版本** | `1.0.6`（2026-10-19 按 pom 现读订正；此前 README 写的 1.0.5 已过期） |
-| **父项目** | `io.github.yuku123:z-boot-parent:1.2.2`（`<relativePath/>` 留空，parent 在 repo1 不在磁盘） |
+| **Maven 坐标** | `io.github.yuku123:z-gw:1.0.7`（根 POM 直接钉 `<version>`，flatten-maven-plugin 1.5.0 `oss` 模式常开） |
+| **当前版本** | `1.0.7`（2026-11-18 按 pom 现读订正；此前 README 写的 1.0.5/1.0.6 已过期） |
+| **父项目** | `io.github.yuku123:z-boot-parent:1.2.4`（`<relativePath/>` 留空，parent 在 repo1 不在磁盘） |
 | **Maven Central** | 已发布（repo1 实测 HTTP 200）：`z-gw` / `z-gw-api` / `z-gw-core` / `z-gw-spring-boot-starter` / `z-gw-admin` 均到 `1.0.6`（repo1 maven-metadata 实测已发 1.0.1–1.0.6） |
 | **默认端口** | `9090` — Netty 网关代理端口（`zgw.server.port`）；`8888` — Spring Web 管理端口（examples 的 `server.port`，承载 admin API / actuator / Knife4j） |
-| **运行口径** | Java 17 · Spring Boot 3.3.13（servlet 栈；版本经 `z-boot-parent:1.2.2` 地板下发，2026-10-30 火车） |
+| **运行口径** | Java 17 · Spring Boot 3.3.13（servlet 栈；版本经 `z-boot-parent:1.2.4` 地板下发，2026-10-30 火车） |
 | **reactor 模块** | 4 个：`z-gw-api`、`z-gw-core`、`z-gw-spring-boot-starter`、`z-gw-admin`（`z-gw-examples` 已临时移出 `<modules>`，非发布目标） |
 | **最近更新** | 2026-09-30 |
 
 近期真实改造（`git log` 实测，README 上次落笔后已 16 个提交）：parent 从悬空的 `com.zifang:z-opc:1.0.0-SNAPSHOT`
-统一换到 `z-boot-parent:1.2.0`（2026-11-06 又抬到 1.2.1，见上表「父项目」行）；netty 收敛为地板单一口径 4.1.138.Final（消除同 reactor 双版本）；
+统一换到 `z-boot-parent:1.2.4`（2026-11-06 又抬到 1.2.1，见上表「父项目」行）；netty 收敛为地板单一口径 4.1.138.Final（消除同 reactor 双版本）；
 `flatten` 从 `central` profile 提到根 build 常开（修掉"本地 install 出的 pom 仍带悬空 parent"）；
 Java 8 兼容修复（admin 的 4 处 `Map.of`、`YamlRouteLoader.readAllBytes`）。
 
@@ -64,8 +64,8 @@ JwtAuth → Error → NettyProxy；其中 `JwtAuthGlobalFilter` 仅在 `zgw.secu
 
 ### 如实边界（原 README 宣传过、代码里实际没有的东西）
 
-- **不是响应式/WebFlux 网关**：全仓 `*.java` 实测 `Mono`/`Flux` 出现 0 次；`reactor-netty:1.1.13`、
-  `reactor-core:3.6.10` 只是根 POM `<dependencyManagement>` 预留槽位（无任何模块声明依赖），运行时是
+- **不是响应式/WebFlux 网关**：全仓 `*.java` 实测 `Mono`/`Flux` 出现 0 次；`reactor-netty:1.2.18`、
+  `reactor-core:3.7.19` 只是根 POM `<dependencyManagement>` 预留槽位（无任何模块声明依赖），运行时是
   纯 Netty Channel 流水线（`GatewayServer` + `GatewayHandler`，Linux 可用时自动切 Epoll channel）。
 - **JWT 鉴权已接入过滤链（此前为预留位，现已生效）**：`JwtAuthGlobalFilter`（order=0，Tracing 之后、
   Proxy 之前）在 `zgw.security.enabled=true` 时由 `installDefaults()` 注册，从 `Authorization: Bearer <token>`
@@ -105,7 +105,7 @@ JwtAuth → Error → NettyProxy；其中 `JwtAuthGlobalFilter` 仅在 `zgw.secu
 
 ```
 z-gw/
-├── pom.xml                        # 根聚合 POM：parent z-boot-parent:1.2.2，版本 1.0.6，central profile 发布
+├── pom.xml                        # 根聚合 POM：parent z-boot-parent:1.2.4，版本 1.0.7，central profile 发布
 ├── z-gw-api/                      # SPI 与模型（19 个类）：RouteDefinition / GatewayFilter(+Chain/Factory/Global)
 │                                  #   / PredicateFactory / RateLimiter / CircuitBreaker / LoadBalancer
 │                                  #   / ServiceDiscovery+ServiceInstance / GatewayContext；依赖 z-util-core、z-util-parser-json
@@ -153,7 +153,7 @@ z-gw/
 | 测试 | JUnit Jupiter 5.10.2 + Mockito 5.12.0；surefire 3.2.5（本仓 pluginManagement 保留旧尺） |
 | 前端面板 | React 19 · antd 6 · Vite 6 · TypeScript 5.7（`z-gw-admin-frontend`，private npm 工程） |
 | 构建/发布 | Maven；flatten-maven-plugin 1.5.0（oss 模式常开）；`-P central` 走 central-publishing-maven-plugin 0.8.0 |
-| 预留槽位 | reactor-netty 1.1.13 / reactor-core 3.6.10 —— 仅根 DM 槽位，当前无代码使用 |
+| 预留槽位 | reactor-netty 1.2.18 / reactor-core 3.7.19 —— 仅根 DM 槽位，当前无代码使用 |
 
 ---
 
@@ -165,7 +165,7 @@ z-gw/
 mvn clean install -DskipTests
 ```
 
-构建需能解析 `io.github.yuku123:z-boot-parent:1.2.2`（repo1 或镜像）；第三方版本一律走父链，
+构建需能解析 `io.github.yuku123:z-boot-parent:1.2.4`（repo1 或镜像）；第三方版本一律走父链，
 模块 POM 不应再有字面版本钉（`log4j-slf4j2-impl` 例外，见根 POM 注释）。
 
 ### 跑通演示（examples，含 admin API）
@@ -185,7 +185,7 @@ cd z-gw-examples && mvn spring-boot:run
 <dependency>
     <groupId>io.github.yuku123</groupId>
     <artifactId>z-gw-spring-boot-starter</artifactId>
-    <version>1.0.6</version>
+    <version>1.0.7</version>
 </dependency>
 ```
 

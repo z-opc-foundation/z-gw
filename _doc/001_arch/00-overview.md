@@ -12,7 +12,7 @@ z-gw 是组织内的**自研高性能 API 网关**：Netty 4 手写运行时（H
 
 ```
 z-gw/
-├── pom.xml                        # 根聚合 POM：z-gw:1.0.6，parent = z-boot-parent:1.1.0（relativePath 留空）
+├── pom.xml                        # 根聚合 POM：z-gw:1.0.6，parent = z-boot-parent:1.2.4（relativePath 留空）
 │                                  #   reactor 只有 4 个模块；z-gw-examples 已被注释排除
 ├── z-gw-api/                      # SPI 与模型（19 个类）
 │                                  #   RouteDefinition / GatewayFilter(+Chain/Factory/Global) / FilterDefinition
@@ -115,7 +115,7 @@ z-gw/
 
 ## 4. 对外集成 / 上下游
 
-**上游依赖：** `z-boot-parent:1.1.0`（`relativePath` 留空）→ 第三方地板（Spring Boot 2.7.18、netty-all 4.1.138.Final、log4j2 2.25.4、snakeyaml 2.0）与兄弟仓 fleet（`z-util-core` / `z-util-parser-json`）。根 DM 里**刻意**压过地板的版本：Micrometer 1.12.13（地板 1.9.17）、slf4j-api 2.0.9（地板 1.7.36）、snakeyaml 2.0（压 CVE-2022-1471 口径）。根 DM 里另有两格**预留槽位**：`reactor-netty` 1.1.13 / `reactor-core` 3.6.10 —— 当前无任何模块声明依赖。
+**上游依赖：** `z-boot-parent:1.2.4`（`relativePath` 留空）→ 第三方地板（Spring Boot 2.7.18、netty-all 4.1.138.Final、log4j2 2.25.4、snakeyaml 2.0）与兄弟仓 fleet（`z-util-core` / `z-util-parser-json`）。根 DM 里**刻意**压过地板的版本：Micrometer 1.12.13（地板 1.9.17）、slf4j-api 2.0.9（地板 1.7.36）、snakeyaml 2.0（压 CVE-2022-1471 口径）。根 DM 里另有两格**预留槽位**：`reactor-netty` 1.1.13 / `reactor-core` 3.6.10 —— 当前无任何模块声明依赖。
 
 **对外边界：**
 
