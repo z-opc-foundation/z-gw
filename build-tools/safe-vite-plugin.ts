@@ -1,3 +1,4 @@
+import type { Plugin } from 'vite'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -13,14 +14,14 @@ import path from 'node:path'
  *   本插件把流程改成：构建开始时把旧 outDir **rename** 成 `<outDir>.stale-<时间戳>`，
  *   再让 vite 在一个空目录上正常产出。零删除 ⇒ 不碰安全闸。
  */
-export function safeEmptyOutDir() {
+export function safeEmptyOutDir(): Plugin {
     let outDirAbs: string | null = null
 
-    return {
+    const plugin: Plugin = {
         name: 'safe-empty-out-dir',
-        apply: 'build',
+        apply: 'build' as const,
 
-        configResolved(config: any) {
+        configResolved(config) {
             config.build.emptyOutDir = false
             outDirAbs = path.resolve(config.root || process.cwd(), config.build.outDir)
         },
@@ -35,4 +36,5 @@ export function safeEmptyOutDir() {
             }
         },
     }
+    return plugin
 }
