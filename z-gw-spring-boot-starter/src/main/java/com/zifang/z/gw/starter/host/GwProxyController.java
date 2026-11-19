@@ -2,13 +2,14 @@ package com.zifang.z.gw.starter.host;
 
 import com.zifang.util.json.JsonUtil;
 import com.zifang.z.gw.core.predicate.PredicateFactoryRegistry;
+import com.zifang.z.meta.api.annotation.BizApi;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.net.HttpURLConnection;
@@ -96,6 +97,7 @@ public class GwProxyController {
      * 页面才不至于把 404 (依赖没接) 渲染成 "网关没有路由"。
      */
     @GetMapping(PREFIX + "/__instance")
+    @BizApi(summary = "自省接口: \"admin 面接没接通 / Netty 在不在 / 指标桥不桥\" 三件事在这里分开回答", description = "自省接口: \"admin 面接没接通 / Netty 在不在 / 指标桥不桥\" 三件事在这里分开回答, 页面才不至于把 404 (依赖没接) 渲染成 \"网关没有路由\"。", tags = { "z-gw" })
     public void instance(HttpServletRequest req, HttpServletResponse resp) throws Exception {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("jvm", ManagementFactory.getRuntimeMXBean().getName());
@@ -133,6 +135,7 @@ public class GwProxyController {
      *     /api/gw/metrics/summary -> /gw/admin/metrics/summary; /api/gw/meta/predicates -> /gw/admin/meta/predicates。
      */
     @GetMapping(PREFIX + "/**")
+    @BizApi(summary = "GET /api/gw/ -> GET /gw/admin/ (同 JVM 环回)", description = "GET /api/gw/ -> GET /gw/admin/ (同 JVM 环回)。 例: /api/gw/routes -> /gw/admin/routes; /api/gw/routes/opc-api -> /gw/admin/routes/opc-api; /api/gw/metrics/summary -> /gw/admin/metrics/summary; /api/gw/meta/predicates -> /gw/admin/meta/predicates。", tags = { "z-gw" })
     public void proxy(HttpServletRequest req, HttpServletResponse resp) throws Exception {
         String sub = upstreamPath(req.getRequestURI());
         if (sub == null) {
@@ -291,3 +294,6 @@ public class GwProxyController {
         resp.getOutputStream().flush();
     }
 }
+
+
+

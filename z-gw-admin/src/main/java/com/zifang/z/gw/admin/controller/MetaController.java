@@ -4,6 +4,7 @@ import com.zifang.z.gw.api.RouteDefinition;
 import com.zifang.z.gw.core.predicate.PredicateFactoryRegistry;
 import com.zifang.z.gw.core.router.InMemoryRouteRepository;
 import com.zifang.z.gw.core.server.GatewayServer;
+import com.zifang.z.meta.api.annotation.BizApi;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,7 @@ public class MetaController {
 
     @GetMapping("/predicates")
     @Operation(summary = "列出全部内置谓词工厂")
+    @BizApi(summary = "predicates", description = "", tags = { "z-gw" })
     public List<Map<String, String>> predicates() {
         List<Map<String, String>> list = new ArrayList<>();
         predicateRegistry.all().forEach(p -> list.add(Collections.singletonMap("name", p.name())));
@@ -50,6 +52,7 @@ public class MetaController {
 
     @GetMapping("/status")
     @Operation(summary = "网关运行时状态")
+    @BizApi(summary = "status", description = "", tags = { "z-gw" })
     public Map<String, Object> status() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("started", server != null && server.isStarted());
@@ -59,7 +62,11 @@ public class MetaController {
 
     @GetMapping("/routes")
     @Operation(summary = "所有路由(同 /gw/admin/routes)")
+    @BizApi(summary = "routes", description = "", tags = { "z-gw" })
     public List<RouteDefinition> routes() {
         return routeRepository.getRouteDefinitions();
     }
 }
+
+
+

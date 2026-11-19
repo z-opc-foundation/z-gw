@@ -1,5 +1,6 @@
 package com.zifang.z.gw.admin.controller;
 
+import com.zifang.z.meta.api.annotation.BizApi;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,6 +32,7 @@ public class GwMetricsController {
 
     @GetMapping("/summary")
     @Operation(summary = "聚合请求数 + 平均 RT")
+    @BizApi(summary = "summary", description = "", tags = { "z-gw" })
     public Map<String, Object> summary() {
         Map<String, Object> out = new HashMap<>();
 
@@ -48,6 +50,7 @@ public class GwMetricsController {
 
     @GetMapping("/routes")
     @Operation(summary = "按路由维度汇总")
+    @BizApi(summary = "perRoute", description = "", tags = { "z-gw" })
     public Map<String, Map<String, Number>> perRoute() {
         Map<String, Map<String, Number>> result = new HashMap<>();
         registry.find("zgw.request.total").counters().forEach(c -> {
@@ -59,3 +62,6 @@ public class GwMetricsController {
         return result;
     }
 }
+
+
+

@@ -3,6 +3,9 @@ package com.zifang.z.gw.admin.controller;
 import com.zifang.z.gw.api.RouteDefinition;
 import com.zifang.z.gw.core.router.InMemoryRouteRepository;
 import com.zifang.z.gw.core.router.RouteMatcher;
+import com.zifang.z.meta.api.annotation.BizApi;
+import com.zifang.z.meta.api.annotation.BizField;
+import com.zifang.z.meta.api.annotation.BizParam;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,20 +47,23 @@ public class RouteAdminController {
 
     @GetMapping
     @Operation(summary = "列出全部路由")
+    @BizApi(summary = "list", description = "", tags = { "z-gw" })
     public List<RouteDefinition> list() {
         return repository.getRouteDefinitions();
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "获取单条路由")
-    public ResponseEntity<RouteDefinition> get(@PathVariable String id) {
+    @BizApi(summary = "get", description = "", tags = { "z-gw" })
+    public ResponseEntity<RouteDefinition> get(@PathVariable @BizParam(name = "id", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.PATH) String id) {
         RouteDefinition r = repository.get(id);
         return r == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(r);
     }
 
     @PostMapping
     @Operation(summary = "创建路由")
-    public ResponseEntity<RouteDefinition> create(@RequestBody RouteDefinition route) {
+    @BizApi(summary = "create", description = "", tags = { "z-gw" })
+    public ResponseEntity<RouteDefinition> create(@RequestBody @BizParam(name = "route", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.BODY) RouteDefinition route) {
         if (route.getId() == null || route.getId().isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
@@ -67,8 +73,9 @@ public class RouteAdminController {
 
     @PutMapping("/{id}")
     @Operation(summary = "更新路由")
-    public ResponseEntity<RouteDefinition> update(@PathVariable String id,
-                                                 @RequestBody RouteDefinition route) {
+    @BizApi(summary = "update", description = "", tags = { "z-gw" })
+    public ResponseEntity<RouteDefinition> update(@PathVariable @BizParam(name = "id", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.PATH) String id,
+                                                 @RequestBody @BizParam(name = "route", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.BODY) RouteDefinition route) {
         if (!id.equals(route.getId())) {
             return ResponseEntity.badRequest().build();
         }
@@ -78,14 +85,16 @@ public class RouteAdminController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "删除路由")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    @BizApi(summary = "delete", description = "", tags = { "z-gw" })
+    public ResponseEntity<Void> delete(@PathVariable @BizParam(name = "id", type = BizField.FieldType.STRING, description = "", position = BizParam.Position.PATH) String id) {
         repository.delete(id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/reload")
     @Operation(summary = "整体 reload 路由")
-    public ResponseEntity<Map<String, Object>> reload(@RequestBody List<RouteDefinition> routes) {
+    @BizApi(summary = "reload", description = "", tags = { "z-gw" })
+    public ResponseEntity<Map<String, Object>> reload(@RequestBody @BizParam(name = "routes", type = BizField.FieldType.JSON, description = "", position = BizParam.Position.BODY) List<RouteDefinition> routes) {
         repository.replaceAll(routes);
         return ResponseEntity.ok(
                 Collections.singletonMap("count", (Object) (routes == null ? 0 : routes.size())));
@@ -93,6 +102,7 @@ public class RouteAdminController {
 
     @GetMapping("/stats")
     @Operation(summary = "路由统计信息")
+    @BizApi(summary = "stats", description = "", tags = { "z-gw" })
     public Map<String, Object> stats() {
         List<RouteDefinition> routes = repository.getRouteDefinitions();
         int enabled = 0;
@@ -106,3 +116,6 @@ public class RouteAdminController {
         return out;
     }
 }
+
+
+
